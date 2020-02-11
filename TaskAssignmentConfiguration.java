@@ -1,5 +1,6 @@
 package com.doceleguas.warehouse.advancedwarehouseoperations.olb.ad_process;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -55,22 +56,49 @@ public class TaskAssignmentConfiguration extends DalBaseProcess {
 
 	private void UnAssignTasks() throws Exception {
 
+		List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan();
+
 		StringBuilder queryBuilder = new StringBuilder();
 		queryBuilder.append("update " + OBAWOTask.ENTITY_NAME);
 		queryBuilder.append(" set " + OBAWOTask.PROPERTY_USERCONTACT + " = NULL");
 		queryBuilder.append(" where " + OBAWOTask.PROPERTY_STATUS + "='AV'");
 
-		if (!getConnectedUsers().isEmpty()) {
+		if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
 			queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + ".id not in (:ids)");
 		}
+
 		queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + " is not null ");
 		final Session session = OBDal.getInstance().getSession();
 		@SuppressWarnings("rawtypes")
 		final Query query = session.createQuery(queryBuilder.toString());
-		if (!getConnectedUsers().isEmpty()) {
-			query.setParameter("ids", getConnectedUsers());
+		if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
+			List<String> finalListIds = getConnectedUsers();
+			finalListIds.addAll(idsUsuariosPuestosDeTrabajoQueNoSeDesasignan);
+			query.setParameter("ids", finalListIds);
 		}
+
 		query.executeUpdate();
+	}
+
+	/**
+	 * Description:
+	 * 
+	 * @return
+	 */
+	private List<String> obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan() {
+
+		List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = new ArrayList<String>();
+
+		StringBuilder usersConnectedHql = new StringBuilder();
+		usersConnectedHql.append("select distinct u.id ");
+		usersConnectedHql.append("from ADUser u left join u.opxdesPuestoTrabajo puestoTra ");
+		usersConnectedHql.append("where puestoTra.taskAssigNoDesasigna = true ");
+
+		final Session session = OBDal.getInstance().getSession();
+		final Query<String> query = session.createQuery(usersConnectedHql.toString(), String.class);
+		idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = query.list();
+
+		return idsUsuariosPuestosDeTrabajoQueNoSeDesasignan;
 	}
 
 	/**
