@@ -25,7 +25,8 @@ import es.opentix.awo.ampliacion.interfaces.RoutingAssignementAlgorithmInterface
 import es.opentix.devpro.OpxLog;
 
 class InternalRoutingAssignmentUtils {
-
+	private static final String TAREA_MOVE_ID = "79B282151B6C414B86EA69AD719A77E7";
+	private static final String TAREA_PUTAWAY_ID = "3D7475F4457C405D94BFC2593E1DC4AB";
 	private static final int MATCH_PRODUCT = 16;
 	private static final int MATCH_PRODUCT_CATEGORY = 8;
 	private static final int MATCH_BUSINESSPARTNER = 4;
@@ -105,7 +106,8 @@ class InternalRoutingAssignmentUtils {
 			Product product = ProductConsideringReferencedInventoryUtils
 					.getProductConsideringReferencedInventory(taskRequirement);
 
-			if (taskRequirement.getInventoryTransactionType().isBehaveasgroup()
+			if ((TAREA_MOVE_ID.equals(taskRequirement.getInventoryTransactionType().getId())
+					|| TAREA_PUTAWAY_ID.equals(taskRequirement.getInventoryTransactionType().getId()))
 					&& taskRequirement.getStorageDetail() != null
 					&& taskRequirement.getStorageDetail().getReferencedInventory() != null) {
 				product = ProductConsideringReferencedInventoryUtils
