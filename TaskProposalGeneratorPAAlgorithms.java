@@ -112,13 +112,13 @@ class TaskProposalGeneratorPAAlgorithms extends TaskProposalsGeneratorForTaskReq
 			final Locator storageBinTo = Utilities.getObjectProxyById(Locator.ENTITY_NAME, storageBinToId);
 			logLine(AWOVerbosityLevel.INFO, "Trying to use bin [%s] returned by PA Algorithm", storageBinTo);
 
-			StorageDetail stock = this.taskRequirement.getStorageDetail();
+//			StorageDetail stock = this.taskRequirement.getStorageDetail();
 
-			if (stock != null && stock.getReferencedInventory() != null
-					&& areTheSameBin(storageBinFrom, storageBinTo)) {
-				logLine(AWOVerbosityLevel.INFO, "Proposed bin to is the same as the original bin from. Skipping it.");
-				continue;
-			}
+//			if (stock != null && stock.getReferencedInventory() != null
+//					&& areTheSameBin(storageBinFrom, storageBinTo)) {
+//				logLine(AWOVerbosityLevel.INFO, "Proposed bin to is the same as the original bin from. Skipping it.");
+//				continue;
+//			}
 
 			if (forbiddenStorageBinToIds.contains(storageBinToId)) {
 				logLine(AWOVerbosityLevel.INFO,
