@@ -26,312 +26,320 @@ import org.quartz.JobExecutionException;
 import com.doceleguas.warehouse.advancedwarehouseoperations.olb.data.TaskAssignConfig;
 import com.precognis.awo.Incidencias;
 
-//the background process needs to extend DalBaseProcess since
+// the background process needs to extend DalBaseProcess since
 public class TaskAssignmentConfiguration extends DalBaseProcess {
 
-	private ProcessLogger logger;
-	private TaskUserAssignments availability;
-	private List<String> connectedUsers;
-	final Map<String, Boolean> assignedTask = new HashMap<>();
+    private ProcessLogger       logger;
+    private TaskUserAssignments availability;
+    private List<String>        connectedUsers;
+    final Map<String, Boolean>  assignedTask = new HashMap<>();
 
-	protected void doExecute(ProcessBundle bundle) throws Exception {
+    protected void doExecute(ProcessBundle bundle) throws Exception {
 
-		logger = bundle.getLogger();
-		logger.logln("Starting Operator Load Balancing");
-		try {
-			UnAssignTasks();
-			if (thereAreConnectedUsers()) {
-				logger.logln(String.format("%d users are connected in the POS.", getConnectedUsers().size()));
-				availability = new TaskUserAssignments(getConnectedUsers());
-				startAssignProcess();
-			} else {
-				logger.logln("No users are connected");
-			}
-		} catch (Exception e) {
-			logger.logln(String.format("ERROR: %s", e.getMessage()));
-			throw new JobExecutionException(e.getMessage(), e);
-		}
+        logger = bundle.getLogger();
+        logger.logln("Starting Operator Load Balancing");
+        try {
+            UnAssignTasks();
+            if (thereAreConnectedUsers()) {
+                logger.logln(String.format("%d users are connected in the POS.", getConnectedUsers().size()));
+                availability = new TaskUserAssignments(getConnectedUsers());
+                startAssignProcess();
+            } else {
+                logger.logln("No users are connected");
+            }
+        } catch (Exception e) {
+            logger.logln(String.format("ERROR: %s", e.getMessage()));
+            throw new JobExecutionException(e.getMessage(), e);
+        }
 
-	}
+    }
 
-	private void UnAssignTasks() throws Exception {
+    private void UnAssignTasks() throws Exception {
 
-		List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan();
+        List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan();
 
-		StringBuilder queryBuilder = new StringBuilder();
-		queryBuilder.append("update " + OBAWOTask.ENTITY_NAME);
-		queryBuilder.append(" set " + OBAWOTask.PROPERTY_USERCONTACT + " = NULL");
-		queryBuilder.append(" where " + OBAWOTask.PROPERTY_STATUS + "='AV'");
+        StringBuilder queryBuilder = new StringBuilder();
+        queryBuilder.append("update " + OBAWOTask.ENTITY_NAME);
+        queryBuilder.append(" set " + OBAWOTask.PROPERTY_USERCONTACT + " = NULL");
+        queryBuilder.append(" where " + OBAWOTask.PROPERTY_STATUS + "='AV'");
 
-		if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
-			queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + ".id not in (:ids)");
-		}
+        if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
+            queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + ".id not in (:ids)");
+        }
 
-		queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + " is not null ");
-		final Session session = OBDal.getInstance().getSession();
-		@SuppressWarnings("rawtypes")
-		final Query query = session.createQuery(queryBuilder.toString());
-		if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
-			List<String> finalListIds = getConnectedUsers();
-			finalListIds.addAll(idsUsuariosPuestosDeTrabajoQueNoSeDesasignan);
-			query.setParameter("ids", finalListIds);
-		}
+        queryBuilder.append(" and " + OBAWOTask.PROPERTY_USERCONTACT + " is not null ");
+        final Session session = OBDal.getInstance().getSession();
+        @SuppressWarnings("rawtypes")
+        final Query query = session.createQuery(queryBuilder.toString());
+        if (!getConnectedUsers().isEmpty() || !idsUsuariosPuestosDeTrabajoQueNoSeDesasignan.isEmpty()) {
+            List<String> finalListIds = getConnectedUsers();
+            finalListIds.addAll(idsUsuariosPuestosDeTrabajoQueNoSeDesasignan);
+            query.setParameter("ids", finalListIds);
+        }
 
-		query.executeUpdate();
-	}
+        query.executeUpdate();
+    }
 
-	/**
-	 * Description:
-	 * 
-	 * @return
-	 */
-	private List<String> obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan() {
+    /**
+     * Description:
+     * 
+     * @return
+     */
+    private List<String> obtenerUsuariosConPuestosDeTrabajoQueNoSeDesasignan() {
 
-		List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = new ArrayList<String>();
+        List<String> idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = new ArrayList<String>();
 
-		StringBuilder usersConnectedHql = new StringBuilder();
-		usersConnectedHql.append("select distinct u.id ");
-		usersConnectedHql.append("from ADUser u left join u.opxdesPuestoTrabajo puestoTra ");
-		usersConnectedHql.append("where puestoTra.taskAssigNoDesasigna = true ");
+        StringBuilder usersConnectedHql = new StringBuilder();
+        usersConnectedHql.append("select distinct u.id ");
+        usersConnectedHql.append("from ADUser u left join u.opxdesPuestoTrabajo puestoTra ");
+        usersConnectedHql.append("where puestoTra.taskAssigNoDesasigna = true ");
 
-		final Session session = OBDal.getInstance().getSession();
-		final Query<String> query = session.createQuery(usersConnectedHql.toString(), String.class);
-		idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = query.list();
+        final Session session = OBDal.getInstance().getSession();
+        final Query<String> query = session.createQuery(usersConnectedHql.toString(), String.class);
+        idsUsuariosPuestosDeTrabajoQueNoSeDesasignan = query.list();
 
-		return idsUsuariosPuestosDeTrabajoQueNoSeDesasignan;
-	}
+        return idsUsuariosPuestosDeTrabajoQueNoSeDesasignan;
+    }
 
-	/**
-	 * This method get all Rules ordered by rules of kind Rules to Tasks and seqNo
-	 * 
-	 * @return the list of TaskAssignConfig(rules) present in the db.
-	 */
-	private List<TaskAssignConfig> getRules() {
-		final OBCriteria<TaskAssignConfig> rules = OBDal.getInstance().createCriteria(TaskAssignConfig.class);
-		rules.addOrderBy(TaskAssignConfig.PROPERTY_ASSIGNLOGIC, true);
-		rules.addOrderBy(TaskAssignConfig.PROPERTY_SEQUENCENUMBER, true);
-		rules.addOrderBy(TaskAssignConfig.PROPERTY_WAREHOUSE, true);
-		rules.setFilterOnReadableOrganization(false);
-		rules.setFilterOnReadableClients(false);
-		return rules.list();
-	}
+    /**
+     * This method get all Rules ordered by rules of kind Rules to Tasks and seqNo
+     * 
+     * @return the list of TaskAssignConfig(rules) present in the db.
+     */
+    private List<TaskAssignConfig> getRules() {
 
-	/**
-	 * For each rule get the list of tasks that match and call the task assignment
-	 * process
-	 */
-	private void startAssignProcess() {
-		List<TaskAssignConfig> rules = getRules();
-		logger.logln("Se han encontrado " + rules.size() + " reglas");
-		if (!rules.isEmpty()) {
-			for (TaskAssignConfig rule : rules) {
-				logger.logln(String.format("-- Rule %s --", rule.getSequenceNumber()));
-				List<OBAWOTask> taskList = new OlbTaskFilter().filter(rule);
-				logger.logln("-- La cantidad de tareas encontradas para esta regla son " + taskList.size());
-				if (!taskList.isEmpty()) {
-					executeTaskAssigment(rule, taskList);
-				} else
-					logger.logln("--- No matching tasks");
-			}
-		} else {
-			logger.logln("-- No rules --");
-		}
-	}
+        final OBCriteria<TaskAssignConfig> rules = OBDal.getInstance().createCriteria(TaskAssignConfig.class);
+        rules.addOrderBy(TaskAssignConfig.PROPERTY_ASSIGNLOGIC, true);
+        rules.addOrderBy(TaskAssignConfig.PROPERTY_SEQUENCENUMBER, true);
+        rules.addOrderBy(TaskAssignConfig.PROPERTY_WAREHOUSE, true);
+        rules.setFilterOnReadableOrganization(false);
+        rules.setFilterOnReadableClients(false);
+        return rules.list();
+    }
 
-	/**
-	 * This method walks through the tasks in taskList param and assigns them to the
-	 * users of the rule if users are not saturated and belong to the same
-	 * organization
-	 * 
-	 * @param rule     The rule
-	 * @param taskList The tasks
-	 */
-	private void executeTaskAssigment(TaskAssignConfig rule, List<OBAWOTask> taskList) {
+    /**
+     * For each rule get the list of tasks that match and call the task assignment
+     * process
+     */
+    private void startAssignProcess() {
 
-		try {
-			OBContext.setAdminMode();
-			List<User> userFromRuleList = getUsersConnectedFromRule(rule);
+        List<TaskAssignConfig> rules = getRules();
+        logger.logln("Se han encontrado " + rules.size() + " reglas");
+        if (!rules.isEmpty()) {
+            for (TaskAssignConfig rule : rules) {
+                logger.logln(String.format("-- Rule %s --", rule.getSequenceNumber()));
+                List<OBAWOTask> taskList = new OlbTaskFilter().filter(rule);
+                logger.logln("-- La cantidad de tareas encontradas para esta regla son " + taskList.size());
+                if (!taskList.isEmpty()) {
+                    executeTaskAssigment(rule, taskList);
+                } else logger.logln("--- No matching tasks");
+            }
+        } else {
+            logger.logln("-- No rules --");
+        }
+    }
 
-			logger.logln("-- Los usuarios encontrados con esta regla son " + userFromRuleList.size() + " : ");
-			for (User user : userFromRuleList) {
-				logger.logln("--- " + user.getUsername());
-			}
+    /**
+     * This method walks through the tasks in taskList param and assigns them to the
+     * users of the rule if users are not saturated and belong to the same
+     * organization
+     * 
+     * @param rule
+     *            The rule
+     * @param taskList
+     *            The tasks
+     */
+    private void executeTaskAssigment(TaskAssignConfig rule, List<OBAWOTask> taskList) {
 
-			if (userFromRuleList.isEmpty()) {
-				logger.logln("--- 0 users connected");
-			} else {
+        try {
+            OBContext.setAdminMode();
+            List<User> userFromRuleList = getUsersConnectedFromRule(rule);
 
-				List<OBAWOTask> groupOfTaskList;
+            logger.logln("-- Los usuarios encontrados con esta regla son " + userFromRuleList.size() + " : ");
+            for (User user : userFromRuleList) {
+                logger.logln("--- " + user.getUsername());
+            }
 
-				for (OBAWOTask task : taskList) {
+            if (userFromRuleList.isEmpty()) {
+                logger.logln("--- 0 users connected");
+            } else {
 
-					logger.logln("-- tratando la tarea: " + task.getIdentifier());
+                List<OBAWOTask> groupOfTaskList;
 
-					if (!assignedTask.containsKey(task.getId())) {
+                for (OBAWOTask task : taskList) {
 
-						logger.logln("-- La tarea no ha sido tratado todavía");
+                    logger.logln("-- tratando la tarea: " + task.getIdentifier());
 
-						if (task.getExpectedMRefinventory() != null) {
-							groupOfTaskList = task.getWarehousePickingList().getOBAWOTaskList();
-						} else
-							groupOfTaskList = Collections.singletonList(task);
+                    if (!assignedTask.containsKey(task.getId())) {
 
-						User u = availability.getUserWithLessAssignedTasks(userFromRuleList);
-						logger.logln("-- Usuarios con menos trabajo: " + (u != null ? u.getUsername() : "no hay"));
+                        logger.logln("-- La tarea no ha sido tratado todavía");
 
-						if (u != null) {
-							assignTaskToTheUser(groupOfTaskList, u);
-							markTasksAsAssigned(groupOfTaskList);
-						}
-					}
-					logger.logln("-- Final del tratamiento de la tarea");
-				}
-				OBDal.getInstance().flush();
-			}
-		} catch (Exception e) {
-			throw new OBException(e);
-		} finally {
-			OBContext.restorePreviousMode();
-		}
-	}
+                        if (task.getExpectedMRefinventory() != null) {
+                            groupOfTaskList = task.getWarehousePickingList().getOBAWOTaskList();
+                        } else groupOfTaskList = Collections.singletonList(task);
 
-	private void markTasksAsAssigned(List<OBAWOTask> groupOfTaskList) {
-		for (OBAWOTask task : groupOfTaskList) {
-			logger.logln(String.format("--- Marcando la tarea como asignada: " + task.getIdentifier()));
+                        User u = availability.getUserWithLessAssignedTasks(userFromRuleList);
+                        logger.logln("-- Usuarios con menos trabajo: " + (u != null ? u.getUsername() : "no hay"));
 
-			assignedTask.put(task.getId(), true);
-		}
-	}
+                        if (u != null) {
+                            assignTaskToTheUser(groupOfTaskList, u);
+                            markTasksAsAssigned(groupOfTaskList);
+                        }
+                    }
+                    logger.logln("-- Final del tratamiento de la tarea");
+                }
+                OBDal.getInstance().flush();
+            }
+        } catch (Exception e) {
+            throw new OBException(e);
+        } finally {
+            OBContext.restorePreviousMode();
+        }
+    }
 
-	private void assignTaskToTheUser(List<OBAWOTask> taskList, User u) {
+    private void markTasksAsAssigned(List<OBAWOTask> groupOfTaskList) {
 
-		// TODO si algún día se actualiza este módulo hay que añadir las lineas
-		// asociadas a incidencias
+        for (OBAWOTask task : groupOfTaskList) {
+            logger.logln(String.format("--- Marcando la tarea como asignada: " + task.getIdentifier()));
 
-		boolean incidencias = obtenerIncidenciasViejas(taskList);
+            assignedTask.put(task.getId(), true);
+        }
+    }
 
-		logger.logln(String.format("--- Incidencias encontradas: " + incidencias));
+    private void assignTaskToTheUser(List<OBAWOTask> taskList, User u) {
 
-		if (!incidencias) {
+        // TODO si algún día se actualiza este módulo hay que añadir las lineas
+        // asociadas a incidencias
 
-			for (OBAWOTask task : taskList) {
+        boolean incidencias = obtenerIncidenciasViejas(taskList);
 
-				task.setUserContact(u);
+        logger.logln(String.format("--- Incidencias encontradas: " + incidencias));
 
-				OBDal.getInstance().save(task);
-				logger.logln(String.format("--- Assigned task with id %s to user %s", task.getId(), u.getUsername()));
+        if (!incidencias) {
 
-			}
+            for (OBAWOTask task : taskList) {
 
-			availability.incrementUserAssignedTaskCount(u.getId());
-		}
+                task.setUserContact(u);
 
-	}
+                OBDal.getInstance().save(task);
+                logger.logln(String.format("--- Assigned task with id %s to user %s", task.getId(), u.getUsername()));
 
-	public static boolean obtenerIncidenciasViejas(List<OBAWOTask> taskList) {
+            }
 
-		OBContext.setAdminMode(false);
-		try {
+            availability.incrementUserAssignedTaskCount(u.getId());
+        }
 
-			for (OBAWOTask task : taskList) {
+    }
 
-				OBCriteria<Incidencias> incidenciasCriteria = OBDal.getInstance().createCriteria(Incidencias.class);
-				incidenciasCriteria.setFilterOnReadableOrganization(false);
-				incidenciasCriteria.add(Restrictions.eq(Incidencias.PROPERTY_TAREA, task.getId()));
-				Incidencias result = (Incidencias) incidenciasCriteria.uniqueResult();
+    public static boolean obtenerIncidenciasViejas(List<OBAWOTask> taskList) {
 
-				if (result != null) {
-					return true;
-				}
-			}
-		} finally {
-			OBContext.restorePreviousMode();
-		}
+        OBContext.setAdminMode(false);
+        try {
 
-		return false;
-	}
+            for (OBAWOTask task : taskList) {
 
-	/**
-	 * Get the users from the rule {@link TaskAssignConfig}
-	 * 
-	 * @param rule
-	 * 
-	 * @return the list of users of the rule that are connected
-	 */
+                OBCriteria<Incidencias> incidenciasCriteria = OBDal.getInstance().createCriteria(Incidencias.class);
+                incidenciasCriteria.setFilterOnReadableOrganization(false);
+                incidenciasCriteria.add(Restrictions.eq(Incidencias.PROPERTY_TAREA, task.getId()));
+                incidenciasCriteria.setMaxResults(1);
 
-	private List<User> getUsersConnectedFromRule(TaskAssignConfig rule) {
-		final Map<String, Object> queryParams = new HashMap<>(5);
-		StringBuilder whereClause = new StringBuilder("as u where 1=1");
+                Incidencias result = (Incidencias) incidenciasCriteria.uniqueResult();
 
-		if (!rule.isAllowFilterByUser() && rule.getUserContact() != null) {
-			whereClause.append(" and u.id = :operator");
-			queryParams.put("operator", rule.getUserContact().getId());
-		} else if (rule.getPosition() != null && !StringUtils.equals(rule.getPosition(), "%")) {
-			whereClause.append(" and lower(u.position) LIKE :position");
-			queryParams.put("position", rule.getPosition().toLowerCase());
-		}
+                if (result != null) {
+                    return true;
+                }
+            }
+        } finally {
+            OBContext.restorePreviousMode();
+        }
 
-		// TODO añadido por Opentix dado que se quiere filtrar por puesto de trabajo
-		if (rule.getOpxdesPuestoTrabajo() != null) {
+        return false;
+    }
 
-			if (rule.getOpxdesPuestoTrabajo().isAnularTaskAssigment()) {
-				logger.logln(String.format("--- Anulando el task assigment debido al puesto de trabajo"));
-				whereClause.append(" and u.opxdesPuestoTrabajo.id = :puestoDeTrabajo");
-				queryParams.put("puestoDeTrabajo", "no existe");
-			} else {
-				whereClause.append(" and u.opxdesPuestoTrabajo = :puestoDeTrabajo");
-				queryParams.put("puestoDeTrabajo", rule.getOpxdesPuestoTrabajo());
-			}
+    /**
+     * Get the users from the rule {@link TaskAssignConfig}
+     * 
+     * @param rule
+     * 
+     * @return the list of users of the rule that are connected
+     */
 
-		}
+    private List<User> getUsersConnectedFromRule(TaskAssignConfig rule) {
 
-		whereClause.append(" and u.id IN (:ids)");
-		queryParams.put("ids", getConnectedUsers());
+        final Map<String, Object> queryParams = new HashMap<>(5);
+        StringBuilder whereClause = new StringBuilder("as u where 1=1");
 
-		whereClause.append(" and u.defaultWarehouse.id = :warehouseRule");
-		queryParams.put("warehouseRule", rule.getWarehouse().getId());
+        if (!rule.isAllowFilterByUser() && rule.getUserContact() != null) {
+            whereClause.append(" and u.id = :operator");
+            queryParams.put("operator", rule.getUserContact().getId());
+        } else if (rule.getPosition() != null && !StringUtils.equals(rule.getPosition(), "%")) {
+            whereClause.append(" and lower(u.position) LIKE :position");
+            queryParams.put("position", rule.getPosition().toLowerCase());
+        }
 
-		final OBQuery<User> userQuery = OBDal.getInstance().createQuery(User.class, whereClause.toString());
+        // TODO añadido por Opentix dado que se quiere filtrar por puesto de trabajo
+        if (rule.getOpxdesPuestoTrabajo() != null) {
 
-		userQuery.setNamedParameters(queryParams);
-		userQuery.setFilterOnReadableClients(false);
-		userQuery.setFilterOnReadableOrganization(false);
-		return userQuery.list();
-	}
+            if (rule.getOpxdesPuestoTrabajo().isAnularTaskAssigment()) {
+                logger.logln(String.format("--- Anulando el task assigment debido al puesto de trabajo"));
+                whereClause.append(" and u.opxdesPuestoTrabajo.id = :puestoDeTrabajo");
+                queryParams.put("puestoDeTrabajo", "no existe");
+            } else {
+                whereClause.append(" and u.opxdesPuestoTrabajo = :puestoDeTrabajo");
+                queryParams.put("puestoDeTrabajo", rule.getOpxdesPuestoTrabajo());
+            }
 
-	/**
-	 * Return the User IDs of the connected users in the Web POS. If it was already
-	 * retrieved then it is returned else it is executed a query to the database
-	 * 
-	 * @return The User ID List of connected users to Web POS
-	 */
-	private List<String> getConnectedUsers() {
-		if (connectedUsers != null) {
-			return connectedUsers;
-		}
+        }
 
-		StringBuilder usersConnectedHql = new StringBuilder();
-		usersConnectedHql.append(" select distinct u.id");
-		usersConnectedHql.append(" from ADUser u,");
-		usersConnectedHql.append(" ADSession s");
-		usersConnectedHql.append(" where u.username=s.username");
-		usersConnectedHql.append(" and s.sessionActive='Y'");
-		usersConnectedHql.append(" and s.loginStatus = :webPosSessionType");
+        whereClause.append(" and u.id IN (:ids)");
+        queryParams.put("ids", getConnectedUsers());
 
-		final Session session = OBDal.getInstance().getSession();
-		final Query<String> query = session.createQuery(usersConnectedHql.toString(), String.class);
-		query.setParameter("webPosSessionType", MobileCoreConstants.SESSION_TYPE);
-		connectedUsers = query.list();
+        whereClause.append(" and u.defaultWarehouse.id = :warehouseRule");
+        queryParams.put("warehouseRule", rule.getWarehouse().getId());
 
-		return connectedUsers;
-	}
+        final OBQuery<User> userQuery = OBDal.getInstance().createQuery(User.class, whereClause.toString());
 
-	/**
-	 * Return if exists any user connected to the Web POS
-	 * 
-	 * @return True if there is any connected user to the web pos or not
-	 */
-	private boolean thereAreConnectedUsers() {
-		return !getConnectedUsers().isEmpty();
-	}
+        userQuery.setNamedParameters(queryParams);
+        userQuery.setFilterOnReadableClients(false);
+        userQuery.setFilterOnReadableOrganization(false);
+        return userQuery.list();
+    }
+
+    /**
+     * Return the User IDs of the connected users in the Web POS. If it was already
+     * retrieved then it is returned else it is executed a query to the database
+     * 
+     * @return The User ID List of connected users to Web POS
+     */
+    private List<String> getConnectedUsers() {
+
+        if (connectedUsers != null) {
+            return connectedUsers;
+        }
+
+        StringBuilder usersConnectedHql = new StringBuilder();
+        usersConnectedHql.append(" select distinct u.id");
+        usersConnectedHql.append(" from ADUser u,");
+        usersConnectedHql.append(" ADSession s");
+        usersConnectedHql.append(" where u.username=s.username");
+        usersConnectedHql.append(" and s.sessionActive='Y'");
+        usersConnectedHql.append(" and s.loginStatus = :webPosSessionType");
+
+        final Session session = OBDal.getInstance().getSession();
+        final Query<String> query = session.createQuery(usersConnectedHql.toString(), String.class);
+        query.setParameter("webPosSessionType", MobileCoreConstants.SESSION_TYPE);
+        connectedUsers = query.list();
+
+        return connectedUsers;
+    }
+
+    /**
+     * Return if exists any user connected to the Web POS
+     * 
+     * @return True if there is any connected user to the web pos or not
+     */
+    private boolean thereAreConnectedUsers() {
+
+        return !getConnectedUsers().isEmpty();
+    }
 }
