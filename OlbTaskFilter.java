@@ -194,14 +194,14 @@ public class OlbTaskFilter {
     private void addOrderByClause() {
 
         final String orderByBin = (String) ObjectUtils.defaultIfNull(this.rule.getOrderByBin(), "asc");
-        queryBuilder.append(" order by task.priority desc, task.creationDate asc, task.obawoTravelSequence asc");
+        queryBuilder.append(" order by task.priority desc, task.obawoTravelSequence asc");
         queryBuilder.append(", CASE");
         queryBuilder.append("    WHEN");
         queryBuilder.append("       itt.obawoTravelsequenceFromto='FR'");
         queryBuilder.append("    THEN bin_fr.searchKey");
         queryBuilder.append("    ELSE bin_to.searchKey");
         queryBuilder.append("  END ");
-        queryBuilder.append(orderByBin);
+        queryBuilder.append(orderByBin + " , task.creationDate asc ");
     }
 
     private List<OBAWOTask> getTaskList() {
