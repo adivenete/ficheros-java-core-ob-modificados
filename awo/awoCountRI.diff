@@ -1979,7 +1979,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
 +          return;
 +        }
 +  
-+        OB.UTIL.showConfirmation.display(OB.I18N.getLabel('OBAWO_CreateCountListTitle'), OB.I18N.getLabel('OBAWO_CreateCountListMessage', [inventory.length]), [{
++        OB.UTIL.showConfirmation.display('Crear Lista de Conteo', inventory.length + ' lineas serán generadas. Si el inventario actual tiene lineas, estas serán borradas. Desea continuar?', [{
 +      label: OB.I18N.getLabel('OBMOBC_LblOk'),
 +      action: function () {
 +        var promises = [];
