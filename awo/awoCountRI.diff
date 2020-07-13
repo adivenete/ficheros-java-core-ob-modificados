@@ -310,8 +310,8 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
  				&& !attValues.getJSONObject(att.getId()).getString("value").equals("null")
 diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java
 --- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java	2019-01-16 17:34:30.000000000 +0100
-+++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java	2020-07-06 08:54:15.320785632 +0200
-@@ -10,24 +10,34 @@
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java	2020-07-13 09:58:44.304953690 +0200
+@@ -10,24 +10,35 @@
  package org.openbravo.warehouse.advancedwarehouseoperations.mobile.processors;
  
  import java.math.BigDecimal;
@@ -336,6 +336,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
 +import org.openbravo.model.common.plm.AttributeValue;
  import org.openbravo.model.common.plm.Product;
  import org.openbravo.model.common.uom.UOM;
++import org.openbravo.model.materialmgmt.onhandquantity.ReferencedInventory;
  import org.openbravo.model.materialmgmt.onhandquantity.StorageDetail;
  import org.openbravo.service.json.JsonConstants;
  import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOInventoryProposal;
@@ -346,7 +347,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
  import org.openbravo.warehouse.advancedwarehouseoperations.utils.InventoryProposalUtils;
  
  public class PhysicalInventoryProposalProcessor extends OBAWOJSONProcessSimple {
-@@ -40,8 +50,15 @@
+@@ -40,8 +51,26 @@
      boolean documentSaved = false;
      try {
        JSONArray pipItems = jsonData.getJSONArray("pipItems");
@@ -356,15 +357,26 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
 +      if (jsonData.has("locatorId")) {
 +        currentLocator = OBDal.getInstance().get(Locator.class, jsonData.getString("locatorId"));
 +      } else if (jsonData.has("reference")) {
-+        JSONObject curItem = pipItems.getJSONObject(0);
-+        StorageDetail stgDetail = OBDal.getInstance().get(StorageDetail.class,
-+            curItem.getString("m_storagedetail_id"));
-+        currentLocator = stgDetail.getStorageBin();
++        int i = 0;
++        JSONObject curItem = pipItems.getJSONObject(i);
++        while (curItem.has("stocked") && !curItem.getBoolean("stocked")) {
++          i++;
++          curItem = pipItems.getJSONObject(i);
++        }
++        if (curItem.has("stocked") && curItem.getBoolean("stocked")) {
++          StorageDetail stgDetail = OBDal.getInstance().get(StorageDetail.class,
++              curItem.getString("m_storagedetail_id"));
++          currentLocator = stgDetail.getStorageBin();
++        } else {
++          final ReferencedInventory ri = AWOReferencedInventoryUtils
++              .getReferenceBySearchKey(jsonData.getString("reference"));
++          currentLocator = ri.getOBAWOLocator();
++        }
 +      }
        OBAWOInventoryProposal PIPHeader = InventoryProposalUtils.createInventoryProposalHeader(
            currentLocator.getWarehouse(), jsonData.getString("action"));
        PIPHeader.setDescription("[AWOMobile]");
-@@ -52,13 +69,111 @@
+@@ -52,13 +81,112 @@
          if (curItem.getBoolean("stocked")) {
            StorageDetail stgDetail = OBDal.getInstance().get(StorageDetail.class,
                curItem.getString("m_storagedetail_id"));
@@ -406,7 +418,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
 +
 +              final AttributeInstance attributeInstance = (AttributeInstance) instCriteria
 +                  .uniqueResult();
-+              if (!"null".equalsIgnoreCase(jsonAttValue)
++              if (attributeInstance != null && !"null".equalsIgnoreCase(jsonAttValue)
 +                  && (attributeInstance.getSearchKey() == null
 +                      || !attributeInstance.getSearchKey().equals(jsonAttValue))) {
 +                attributeInstance.setSearchKey(jsonAttValue);
@@ -425,7 +437,8 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
 +                OBDal.getInstance().save(attributeInstance);
 +              }
 +              attDescription += (StringUtils.isEmpty(attDescription) ? "" : "_")
-+                  + (attributeInstance.getSearchKey() != null ? attributeInstance.getSearchKey()
++                  + (attributeInstance != null && attributeInstance.getSearchKey() != null
++                      ? attributeInstance.getSearchKey()
 +                      : "");
 +            }
 +            if (stgDetailAttSetInstance.getReferencedInventory() != null) {
@@ -480,7 +493,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
            InventoryProposalUtils.insertInventoryProposalLineFromLocator(PIPHeader, lineno,
                currentLocator, product, confirmedQtyBD, attSetInstanceId, uom);
          }
-@@ -67,8 +182,8 @@
+@@ -67,8 +195,8 @@
        OBDal.getInstance().getConnection(true).commit();
        documentSaved = true;
  
@@ -491,7 +504,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
        OBDal.getInstance().flush();
        result.put(JsonConstants.RESPONSE_DATA, new JSONObject("{'success': true}"));
        result.put(JsonConstants.RESPONSE_STATUS, JsonConstants.RPCREQUEST_STATUS_SUCCESS);
-@@ -81,8 +196,9 @@
+@@ -81,8 +209,9 @@
              new JSONObject("{'success': false, 'error': '" + e.getMessage() + "'}"));
          return result;
        } else {
@@ -1942,7 +1955,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
        if (this.isReady()) {
 diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js
 --- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js	2019-01-16 17:34:30.000000000 +0100
-+++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js	2020-07-06 12:31:32.458108790 +0200
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js	2020-07-09 17:42:40.805617532 +0200
 @@ -6,7 +6,7 @@
   * or in the legal folder of this module distribution.
   ************************************************************************************
@@ -1952,7 +1965,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
  
  enyo.kind({
    name: 'OBAWO.PhysicalInventory.newPipItemCreator',
-@@ -26,6 +26,69 @@
+@@ -26,6 +26,73 @@
      });
      return true;
    },
@@ -1989,6 +2002,10 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
 +          }));
 +        });
 +        Promise.all(promises).then(function () {
++          // Set confirmedQuantity to 0 in all lines
++            me.pip.getItemsList().each(function (item) {
++            item.set('confirmedQuantity', 0);
++          });
 +          OB.UTIL.showLoading(false);
 +          enyo.$.scrim.hide();
 +          me.$.actionCountList.setShowing(false);
@@ -2022,7 +2039,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
    components: [{
      name: 'text'
    }, {
-@@ -35,12 +98,19 @@
+@@ -35,12 +102,19 @@
        kind: 'enyo.Button',
        name: 'action',
        ontap: 'addPIPLine'
@@ -2043,7 +2060,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
    }
  });
  
-@@ -71,7 +141,8 @@
+@@ -71,7 +145,8 @@
          kind: 'OBAWO.PhysicalInventory.newPipItemCreator',
          name: 'addPipItem',
          i18NText: 'OBAWO_AddPIPLine',
@@ -2053,7 +2070,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
        }]
      }]
    }],
-@@ -83,7 +154,12 @@
+@@ -83,7 +158,12 @@
        var requestArgs = {};
        requestArgs.onlyWithStock = false;
        requestArgs.onlyUPC = true;
@@ -2067,7 +2084,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
        OBAWO.CentralBroker.getPhysicalInventoryProducts(requestArgs, upcCode, function (inventory, limitExceded) {
          if (inventory && inventory.length === 1) {
            //add to the list
-@@ -255,8 +331,13 @@
+@@ -255,8 +335,13 @@
      this.$.pipToolbar.setPip(this.pip);
    },
    renderDocument: function () {
@@ -2083,7 +2100,7 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
      this.$.pipHeader.$.pipDateValue.setContent(OB.I18N.formatDate(this.pip.get('creationDate')));
      this.$.pipHeader.$.pipDateLabel.setContent(OB.I18N.getLabel('OBMOBC_Date') + ': ');
      this.$.pipHeader.$.docIcon.renderButton();
-@@ -576,7 +657,11 @@
+@@ -576,7 +661,11 @@
    refresh: function () {
      if (this.currentPipItem) {
        this.$.deleteBtn.setShowing(true);
