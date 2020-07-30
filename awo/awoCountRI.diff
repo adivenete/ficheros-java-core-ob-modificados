@@ -1,0 +1,2237 @@
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPostConfirmTaskHook.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPostConfirmTaskHook.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPostConfirmTaskHook.java	1970-01-01 01:00:00.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPostConfirmTaskHook.java	2020-01-29 17:08:20.000000000 +0100
+@@ -0,0 +1,54 @@
++package org.openbravo.warehouse.advancedwarehouseoperations.hooks.implementation;
++
++import java.math.BigDecimal;
++import java.util.HashMap;
++import java.util.Map;
++
++import org.apache.commons.lang.StringUtils;
++import org.openbravo.dal.core.OBContext;
++import org.openbravo.dal.service.OBDal;
++import org.openbravo.model.materialmgmt.onhandquantity.StorageDetail;
++import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOTask;
++import org.openbravo.warehouse.advancedwarehouseoperations.centralbroker.CentralBroker;
++import org.openbravo.warehouse.advancedwarehouseoperations.hooks.PostConfirmTaskHook;
++import org.openbravo.warehouse.advancedwarehouseoperations.ittalgorithm.implementation.BoxInStorageDetail_ITTAlgorithm;
++import org.openbravo.warehouse.advancedwarehouseoperations.ittalgorithm.implementation.CountBoxPhysicalInventory_ITTAlgorithm;
++import org.openbravo.warehouse.advancedwarehouseoperations.utils.OBAWO_Constants;
++import org.openbravo.warehouse.advancedwarehouseoperations.utils.Utilities;
++
++public class CountBoxPostConfirmTaskHook extends PostConfirmTaskHook {
++
++  @Override
++  public boolean isValidHookForThisTask(OBAWOTask task) {
++    final String ittId = task.getInventoryTransactionType().getId();
++    return StringUtils.equals(ittId,
++        CountBoxPhysicalInventory_ITTAlgorithm.INVENTORY_TRANSACTION_TYPE_COUNTBOX_ID);
++  }
++
++  @Override
++  public void exec(OBAWOTask task) throws Exception {
++    if (task.getInventoryProposalLine().getObawoInventoryProp().getReferencedInventory() != null) {
++      OBDal.getInstance().flush();
++      StorageDetail sd = Utilities.getExistingStorageDetail(task.getProduct().getId(),
++          task.getConfirmedLocatorTo().getId(), task.getConfirmedAttribute().getId(),
++          task.getProduct().getUOM().getId());
++      OBDal.getInstance().refresh(sd);
++      Map<String, BigDecimal> mapStorageDetails = new HashMap<String, BigDecimal>();
++      mapStorageDetails.put(sd.getId(), task.getConfirmedQuantity());
++
++      Map<String, Map<String, Object>> extraParameters = new HashMap<String, Map<String, Object>>();
++      final Map<String, Object> extraParamsStorageDetail = new HashMap<String, Object>();
++      extraParamsStorageDetail.put(BoxInStorageDetail_ITTAlgorithm.EXTRAPARAM_LOCATORTOID,
++          task.getConfirmedLocatorTo().getId());
++      extraParamsStorageDetail.put(BoxInStorageDetail_ITTAlgorithm.EXTRAPARAM_REFINVENTORYID,
++          task.getInventoryProposalLine().getObawoInventoryProp().getReferencedInventory().getId());
++      // Sin esta linea, la qtyonhand del StorageDetail al procesar la nueva task es 0 y peta
++      extraParameters.put(sd.getId(), extraParamsStorageDetail);
++      // Create Box task
++      CentralBroker.getNewInstance()
++          .doTheStuff(StorageDetail.class, mapStorageDetails, OBAWO_Constants.ACTION_BOXIN,
++              OBContext.getOBContext().getUser().getId(), null, extraParameters);
++    }
++  }
++
++}
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPreConfirmTaskHook.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPreConfirmTaskHook.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPreConfirmTaskHook.java	1970-01-01 01:00:00.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/hooks/implementation/CountBoxPreConfirmTaskHook.java	2020-01-28 12:54:20.000000000 +0100
+@@ -0,0 +1,24 @@
++package org.openbravo.warehouse.advancedwarehouseoperations.hooks.implementation;
++
++import org.openbravo.dal.service.OBDal;
++import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOTask;
++import org.openbravo.warehouse.advancedwarehouseoperations.OBAWO_InventoryTransactionType;
++import org.openbravo.warehouse.advancedwarehouseoperations.hooks.PreConfirmTaskHook;
++import org.openbravo.warehouse.advancedwarehouseoperations.ittalgorithm.implementation.CountBoxPhysicalInventory_ITTAlgorithm;
++
++public class CountBoxPreConfirmTaskHook extends PreConfirmTaskHook {
++
++  @Override
++  public boolean isValidHookForThisTask(OBAWOTask task) {
++    return task.getInventoryProposalLine() != null
++        && task.getInventoryProposalLine().isNewInReferenceInventory();
++  }
++
++  @Override
++  public void exec(OBAWOTask task) throws Exception {
++    task.setInventoryTransactionType(OBDal.getInstance()
++        .get(OBAWO_InventoryTransactionType.class,
++            CountBoxPhysicalInventory_ITTAlgorithm.INVENTORY_TRANSACTION_TYPE_COUNTBOX_ID));
++    OBDal.getInstance().save(task);
++  }
++}
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/ittalgorithm/implementation/CountBoxPhysicalInventory_ITTAlgorithm.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/ittalgorithm/implementation/CountBoxPhysicalInventory_ITTAlgorithm.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/ittalgorithm/implementation/CountBoxPhysicalInventory_ITTAlgorithm.java	1970-01-01 01:00:00.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/ittalgorithm/implementation/CountBoxPhysicalInventory_ITTAlgorithm.java	2020-01-28 12:55:54.000000000 +0100
+@@ -0,0 +1,15 @@
++package org.openbravo.warehouse.advancedwarehouseoperations.ittalgorithm.implementation;
++
++import org.openbravo.client.kernel.ComponentProvider.Qualifier;
++import org.openbravo.warehouse.advancedwarehouseoperations.centralbroker.InventoryTransactionTypeAlgorithm;
++
++@Qualifier(InventoryTransactionTypeAlgorithm.ITT_ALGORITHM_QUALIFIER)
++public class CountBoxPhysicalInventory_ITTAlgorithm extends CountPhysicalInventory_ITTAlgorithm {
++
++  public static final String INVENTORY_TRANSACTION_TYPE_COUNTBOX_ID = "964F49389259466AB5C574EC4AA1112D";
++
++  @Override
++  public String getInventoryTransactionId() {
++    return INVENTORY_TRANSACTION_TYPE_COUNTBOX_ID;
++  }
++}
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ProductSelector.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ProductSelector.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ProductSelector.java	2019-01-16 17:34:30.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ProductSelector.java	2020-07-02 09:33:14.728704677 +0200
+@@ -59,9 +59,9 @@
+       try {
+         OBContext.setAdminMode(false);
+         useContains = "Y".equals(Preferences.getPreferenceValue("OBAWO_FE_UseContains", true,
+-            OBContext.getOBContext().getCurrentClient(), OBContext.getOBContext()
+-                .getCurrentOrganization(), OBContext.getOBContext().getUser(), OBContext
+-                .getOBContext().getRole(), null));
++            OBContext.getOBContext().getCurrentClient(),
++            OBContext.getOBContext().getCurrentOrganization(), OBContext.getOBContext().getUser(),
++            OBContext.getOBContext().getRole(), null));
+       } catch (PropertyException e) {
+         log.error("Error getting preference OBAWO_FE_UseContains " + e.getMessage(), e);
+       } finally {
+@@ -70,8 +70,8 @@
+       String filter = "";
+       filter = jsonsent.getString("filter").toUpperCase();
+ 
+-      if (OBMOBCUtils
+-          .isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent, "onlyUPC")) {
++      if (OBMOBCUtils.isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent,
++          "onlyUPC")) {
+         paramValues.put("filterParam", filter);
+       } else {
+         if (useContains) {
+@@ -82,8 +82,8 @@
+       }
+     }
+ 
+-    if (OBMOBCUtils
+-        .isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent, "reference")) {
++    if (OBMOBCUtils.isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent,
++        "reference")) {
+       paramValues.put("refId", jsonsent.getString("reference"));
+     }
+ 
+@@ -122,8 +122,8 @@
+     hql += ") ";
+ 
+     if (jsonsent.has("filter") && !StringUtils.isEmpty(jsonsent.getString("filter"))) {
+-      if (OBMOBCUtils
+-          .isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent, "onlyUPC")) {
++      if (OBMOBCUtils.isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent,
++          "onlyUPC")) {
+         hql += " AND upper(pr.uPCEAN) like :filterParam ";
+       } else {
+         // Product: SearchKey/UPC/Name
+@@ -137,9 +137,13 @@
+         hql += "upper(att.description) like :filterParam ) ";
+       }
+     }
+-    if (OBMOBCUtils
+-        .isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent, "reference")) {
+-      hql += " AND ref.searchKey = :refId ";
++    if (OBMOBCUtils.isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent,
++        "reference")) {
++      hql += " AND ((ref.searchKey = :refId AND psv.stocked = 'Y') ";
++      if (!jsonsent.has("onlyWithStock") || jsonsent.getBoolean("onlyWithStock") == false) {
++        hql += "OR (psv.stocked = 'N')";
++      }
++      hql += ") ";
+     }
+     if (OBMOBCUtils.isJsonObjectPropertyStringPresentNotNullAndNotEmptyString(jsonsent,
+         "onlyWithoutReference")) {
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ReferenceInventorySelector.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ReferenceInventorySelector.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ReferenceInventorySelector.java	1970-01-01 01:00:00.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/datasources/PIP_ReferenceInventorySelector.java	2020-01-28 13:56:34.000000000 +0100
+@@ -0,0 +1,100 @@
++/*
++ ************************************************************************************
++ * Copyright (C) 2016-2018 Openbravo S.L.U.
++ * Licensed under the Openbravo Commercial License version 1.0
++ * You may obtain a copy of the License at http://www.openbravo.com/legal/obcl.html
++ * or in the legal folder of this module distribution.
++ ************************************************************************************
++ */
++
++package org.openbravo.warehouse.advancedwarehouseoperations.mobile.datasources;
++
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++import org.apache.log4j.Logger;
++import org.codehaus.jettison.json.JSONException;
++import org.codehaus.jettison.json.JSONObject;
++import org.openbravo.dal.core.OBContext;
++import org.openbravo.erpCommon.businessUtility.Preferences;
++import org.openbravo.warehouse.advancedwarehouseoperations.mobile.utils.OBAWOProcessHQLQuery;
++import org.openbravo.warehouse.advancedwarehouseoperations.utils.OBAWO_Constants;
++
++public class PIP_ReferenceInventorySelector extends OBAWOProcessHQLQuery {
++
++  public static final Logger log = Logger.getLogger(PIP_ReferenceInventorySelector.class);
++
++  @Override
++  protected boolean isAdminMode() {
++    return false;
++  }
++
++  @Override
++  protected Map<String, Object> getParameterValues(JSONObject jsonsent) throws JSONException {
++    Map<String, Object> paramValues = new HashMap<String, Object>();
++    final JSONObject jsonParams = jsonsent.getJSONObject("parameters");
++    String idFilter = jsonParams.has("id") ? jsonParams.getJSONObject("id").getString("value") : "";
++    if (!idFilter.isEmpty()) {
++      paramValues.put("idFilter", idFilter);
++    } else {
++      String filter = jsonParams.has("filter")
++          ? jsonParams.getJSONObject("filter").getString("value")
++          : "";
++      if (useContains()) {
++        paramValues.put("filterName", "%" + filter.toUpperCase() + "%");
++      } else {
++        paramValues.put("filterName", filter);
++      }
++    }
++    return paramValues;
++  }
++
++  @Override
++  protected List<String> getQuery(JSONObject jsonsent) throws JSONException {
++    List<String> referencedInventoryQueries = new ArrayList<String>();
++    final boolean hasIdFilter = getParameterValues(jsonsent).containsKey("idFilter");
++
++    String hql = "SELECT ";
++    hql += "ri.id as id, ";
++    hql += "ri.searchKey as searchKey, ";
++    hql += "ri.referencedInventoryType.id as typeId, ";
++    hql += "ri.referencedInventoryType.name as typeSearchKey ";
++    hql += "FROM MaterialMgmtReferencedInventory ri ";
++    if (hasIdFilter) {
++      hql += "WHERE ri.id = :idFilter ";
++    } else {
++      if (useContains()) {
++        hql += "WHERE upper(ri.searchKey) like :filterName ";
++      } else {
++        hql += "WHERE ri.searchKey like :filterName ";
++      }
++
++    }
++    hql += "AND EXISTS (from ProductStockView psv WHERE psv.referencedInventory.searchKey = ri.searchKey) ";
++    hql += "AND (ri.$readableSimpleClientCriteria) AND (ri.$activeCriteria) AND (ri.$naturalOrgCriteria) ";
++
++    referencedInventoryQueries.add(hql);
++    return referencedInventoryQueries;
++  }
++
++  private boolean useContains() {
++    boolean useContainsMain = true;
++    try {
++      OBContext.setAdminMode(false);
++      useContainsMain = "Y".equals(Preferences.getPreferenceValue(
++          OBAWO_Constants.PREF_MAIN_CONTAINS, true, OBContext.getOBContext().getCurrentClient(),
++          OBContext.getOBContext().getCurrentOrganization(), OBContext.getOBContext().getUser(),
++          OBContext.getOBContext().getRole(), null));
++    } catch (Exception e) {
++      OBContext.restorePreviousMode();
++    }
++    return useContainsMain;
++  }
++
++  @Override
++  protected boolean bypassPreferenceCheck() {
++    return true;
++  }
++}
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOComponentProvider.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOComponentProvider.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOComponentProvider.java	2019-01-16 17:34:30.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOComponentProvider.java	2020-07-01 11:46:57.443547537 +0200
+@@ -76,7 +76,8 @@
+         "components/obawo-inventory-lookup.js", "components/obawo-tasks-selector.js",
+         "components/obawo-render-task.js", "components/obawo-physicalinventory-renderpipitem.js",
+         "components/obawo-putaway-selector.js",
+-        "components/obawo-physicalinventory-productselector.js" };
++        "components/obawo-physicalinventory-productselector.js", 
++        "components/obawo-referenceinventory-selector.js","components/ob-locator-ri-selector.js" };
+ 
+     for (final String dep : deps) {
+       if (dep.endsWith(".js")) {
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOMobileUtils.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOMobileUtils.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOMobileUtils.java	2020-01-29 22:40:37.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/OBAWOMobileUtils.java	2020-07-06 09:27:12.076335903 +0200
+@@ -218,7 +218,8 @@
+ 										.createQuery(AttributeValue.class, "attribute.id = :attId and name = :value");
+ 								attValueQuery.setNamedParameter("value", attValue);
+ 								attValueQuery.setNamedParameter("attId", currentAttribute.getId());
+-								attValueQuery.setFetchSize(1);
++								// attValueQuery.setFetchSize(1);
++								attValueQuery.setMaxResult(1);
+ 								AttributeValue attValueFound = attValueQuery.uniqueResult();
+ 								if (attValueFound != null) {
+ 									attInstance.setAttributeValue(attValueFound);
+@@ -275,7 +276,7 @@
+ 		return false;
+ 	}
+ 
+-	private static String getAttributeValue(JSONObject attValues, Attribute att) throws JSONException {
++	public static String getAttributeValue(JSONObject attValues, Attribute att) throws JSONException {
+ 		if (attValues.has(att.getId()) && attValues.getJSONObject(att.getId()).has("value")
+ 				&& attValues.getJSONObject(att.getId()).getString("value") != null
+ 				&& !attValues.getJSONObject(att.getId()).getString("value").equals("null")
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java	2019-01-16 17:34:30.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/mobile/processors/PhysicalInventoryProposalProcessor.java	2020-07-13 09:58:44.304953690 +0200
+@@ -10,24 +10,35 @@
+ package org.openbravo.warehouse.advancedwarehouseoperations.mobile.processors;
+ 
+ import java.math.BigDecimal;
++import java.util.List;
+ 
+ import javax.servlet.ServletException;
+ 
++import org.apache.commons.lang.StringUtils;
+ import org.codehaus.jettison.json.JSONArray;
+ import org.codehaus.jettison.json.JSONException;
+ import org.codehaus.jettison.json.JSONObject;
++import org.hibernate.criterion.Restrictions;
+ import org.openbravo.base.exception.OBException;
+ import org.openbravo.dal.core.OBContext;
++import org.openbravo.dal.service.OBCriteria;
+ import org.openbravo.dal.service.OBDal;
+ import org.openbravo.model.common.enterprise.Locator;
++import org.openbravo.model.common.plm.Attribute;
++import org.openbravo.model.common.plm.AttributeInstance;
+ import org.openbravo.model.common.plm.AttributeSetInstance;
++import org.openbravo.model.common.plm.AttributeUse;
++import org.openbravo.model.common.plm.AttributeValue;
+ import org.openbravo.model.common.plm.Product;
+ import org.openbravo.model.common.uom.UOM;
++import org.openbravo.model.materialmgmt.onhandquantity.ReferencedInventory;
+ import org.openbravo.model.materialmgmt.onhandquantity.StorageDetail;
+ import org.openbravo.service.json.JsonConstants;
+ import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOInventoryProposal;
++import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOInventoryProposalLine;
+ import org.openbravo.warehouse.advancedwarehouseoperations.mobile.OBAWOMobileUtils;
+ import org.openbravo.warehouse.advancedwarehouseoperations.mobile.utils.OBAWOJSONProcessSimple;
++import org.openbravo.warehouse.advancedwarehouseoperations.utils.AWOReferencedInventoryUtils;
+ import org.openbravo.warehouse.advancedwarehouseoperations.utils.InventoryProposalUtils;
+ 
+ public class PhysicalInventoryProposalProcessor extends OBAWOJSONProcessSimple {
+@@ -40,8 +51,26 @@
+     boolean documentSaved = false;
+     try {
+       JSONArray pipItems = jsonData.getJSONArray("pipItems");
+-      Locator currentLocator = OBDal.getInstance().get(Locator.class,
+-          jsonData.getString("locatorId"));
++      Locator currentLocator = null;
++      if (jsonData.has("locatorId")) {
++        currentLocator = OBDal.getInstance().get(Locator.class, jsonData.getString("locatorId"));
++      } else if (jsonData.has("reference")) {
++        int i = 0;
++        JSONObject curItem = pipItems.getJSONObject(i);
++        while (curItem.has("stocked") && !curItem.getBoolean("stocked")) {
++          i++;
++          curItem = pipItems.getJSONObject(i);
++        }
++        if (curItem.has("stocked") && curItem.getBoolean("stocked")) {
++          StorageDetail stgDetail = OBDal.getInstance().get(StorageDetail.class,
++              curItem.getString("m_storagedetail_id"));
++          currentLocator = stgDetail.getStorageBin();
++        } else {
++          final ReferencedInventory ri = AWOReferencedInventoryUtils
++              .getReferenceBySearchKey(jsonData.getString("reference"));
++          currentLocator = ri.getOBAWOLocator();
++        }
++      }
+       OBAWOInventoryProposal PIPHeader = InventoryProposalUtils.createInventoryProposalHeader(
+           currentLocator.getWarehouse(), jsonData.getString("action"));
+       PIPHeader.setDescription("[AWOMobile]");
+@@ -52,13 +81,112 @@
+         if (curItem.getBoolean("stocked")) {
+           StorageDetail stgDetail = OBDal.getInstance().get(StorageDetail.class,
+               curItem.getString("m_storagedetail_id"));
+-          InventoryProposalUtils.createInventoryProposalLineFromStorageDetail(PIPHeader, stgDetail,
+-              lineno, confirmedQtyBD);
++
++          final OBAWOInventoryProposalLine proposalLine = InventoryProposalUtils
++              .createInventoryProposalLineFromStorageDetail(PIPHeader, stgDetail, lineno,
++                  confirmedQtyBD);
++          // ---------
++          final AttributeSetInstance stgDetailAttSetInstance = stgDetail.getAttributeSetValue();
++          if (!stgDetailAttSetInstance.getId().equals("0")) {
++            final OBCriteria<AttributeUse> attributeuseCriteria = OBDal.getInstance()
++                .createCriteria(AttributeUse.class);
++            attributeuseCriteria.add(Restrictions.eq(AttributeUse.PROPERTY_ATTRIBUTESET,
++                stgDetailAttSetInstance.getAttributeSet()));
++            attributeuseCriteria.addOrderBy(AttributeUse.PROPERTY_SEQUENCENUMBER, true);
++
++            final JSONObject jsonConfirmedAttValues = curItem.getJSONObject("confirmedAttValues");
++            final List<AttributeUse> attributeUseResults = attributeuseCriteria.list();
++
++            final AttributeSetInstance attSetInstanceToUse = stgDetailAttSetInstance
++                .getParentAttributeSetInstance() != null
++                    ? stgDetailAttSetInstance.getParentAttributeSetInstance()
++                    : stgDetailAttSetInstance;
++            String attDescription = "";
++            for (AttributeUse attUse : attributeUseResults) {
++              final Attribute att = attUse.getAttribute();
++
++              final String jsonAttValue = OBAWOMobileUtils.getAttributeValue(jsonConfirmedAttValues,
++                  att);
++
++              final OBCriteria<AttributeInstance> instCriteria = OBDal.getInstance()
++                  .createCriteria(AttributeInstance.class);
++              instCriteria.add(Restrictions.eq(AttributeInstance.PROPERTY_ATTRIBUTE, att));
++              instCriteria.add(Restrictions.eq(AttributeInstance.PROPERTY_ATTRIBUTESETVALUE,
++                  attSetInstanceToUse));
++              instCriteria.setMaxResults(1);
++
++              final AttributeInstance attributeInstance = (AttributeInstance) instCriteria
++                  .uniqueResult();
++              if (attributeInstance != null && !"null".equalsIgnoreCase(jsonAttValue)
++                  && (attributeInstance.getSearchKey() == null
++                      || !attributeInstance.getSearchKey().equals(jsonAttValue))) {
++                attributeInstance.setSearchKey(jsonAttValue);
++                if (attributeInstance.getAttributeValue() != null) {
++                  final OBCriteria<AttributeValue> instValueCriteria = OBDal.getInstance()
++                      .createCriteria(AttributeValue.class);
++                  instValueCriteria.add(Restrictions.eq(AttributeValue.PROPERTY_ATTRIBUTE, att));
++                  instValueCriteria
++                      .add(Restrictions.eq(AttributeValue.PROPERTY_SEARCHKEY, jsonAttValue));
++                  instValueCriteria.setMaxResults(1);
++
++                  final AttributeValue newAttributeValue = (AttributeValue) instValueCriteria
++                      .uniqueResult();
++                  attributeInstance.setAttributeValue(newAttributeValue);
++                }
++                OBDal.getInstance().save(attributeInstance);
++              }
++              attDescription += (StringUtils.isEmpty(attDescription) ? "" : "_")
++                  + (attributeInstance != null && attributeInstance.getSearchKey() != null
++                      ? attributeInstance.getSearchKey()
++                      : "");
++            }
++            if (stgDetailAttSetInstance.getReferencedInventory() != null) {
++              attDescription += "["
++                  + stgDetailAttSetInstance.getReferencedInventory().getSearchKey() + "]";
++            }
++            stgDetailAttSetInstance.setDescription(attDescription);
++            OBDal.getInstance().save(stgDetailAttSetInstance);
++          }
++
++          /*
++           * Product product = OBDal.getInstance().get(Product.class,
++           * curItem.getString("product_id")); AttributeSetInstance attSetInstance =
++           * OBAWOMobileUtils.createAttributeSetInstance(product, curItem); if
++           * (stgDetailAttSetInstance != null &&
++           * !stgDetailAttSetInstance.getId().equals(attSetInstance.getId())) {
++           * proposalLine.setQuantityCount(BigDecimal.ZERO); final OBAWOInventoryProposalLine
++           * newProposalLine = InventoryProposalUtils
++           * .createInventoryProposalLineFromStorageDetail(PIPHeader, stgDetail, lineno,
++           * confirmedQtyBD); newProposalLine.setAttributeSetValue(attSetInstance);
++           * 
++           * newProposalLine.setBookQuantity(BigDecimal.ZERO); }
++           */
++          // -----------
++          if (jsonData.has("reference") && curItem.isNull("reference_searchkey")) {
++            proposalLine.setReferencedInventory(AWOReferencedInventoryUtils
++                .getReferenceBySearchKey(jsonData.getString("reference")));
++            proposalLine.setNewInReferenceInventory(true);
++            OBDal.getInstance().save(proposalLine);
++          }
++        } else if (jsonData.has("reference")) {
++          Product product = OBDal.getInstance().get(Product.class, curItem.getString("product_id"));
++          UOM uom = OBDal.getInstance().get(UOM.class, curItem.getString("product_uom_id"));
++          AttributeSetInstance attSetInstanceId = OBAWOMobileUtils
++              .createAttributeSetInstance(product, curItem);
++          final OBAWOInventoryProposalLine proposalLine = InventoryProposalUtils
++              .insertInventoryProposalLineFromLocator(PIPHeader, lineno, currentLocator, product,
++                  confirmedQtyBD, attSetInstanceId, uom);
++          proposalLine.setNewInReferenceInventory(true);
++          if (PIPHeader.getReferencedInventory() == null) {
++            PIPHeader.setReferencedInventory(AWOReferencedInventoryUtils
++                .getReferenceBySearchKey(jsonData.getString("reference")));
++          }
++          OBDal.getInstance().save(proposalLine);
+         } else {
+           Product product = OBDal.getInstance().get(Product.class, curItem.getString("product_id"));
+           UOM uom = OBDal.getInstance().get(UOM.class, curItem.getString("product_uom_id"));
+-          AttributeSetInstance attSetInstanceId = OBAWOMobileUtils.createAttributeSetInstance(
+-              product, curItem);
++          AttributeSetInstance attSetInstanceId = OBAWOMobileUtils
++              .createAttributeSetInstance(product, curItem);
+           InventoryProposalUtils.insertInventoryProposalLineFromLocator(PIPHeader, lineno,
+               currentLocator, product, confirmedQtyBD, attSetInstanceId, uom);
+         }
+@@ -67,8 +195,8 @@
+       OBDal.getInstance().getConnection(true).commit();
+       documentSaved = true;
+ 
+-      InventoryProposalUtils.completeInventoryProposalAndGenerateTasks(PIPHeader, OBContext
+-          .getOBContext().getUser().getId());
++      InventoryProposalUtils.completeInventoryProposalAndGenerateTasks(PIPHeader,
++          OBContext.getOBContext().getUser().getId());
+       OBDal.getInstance().flush();
+       result.put(JsonConstants.RESPONSE_DATA, new JSONObject("{'success': true}"));
+       result.put(JsonConstants.RESPONSE_STATUS, JsonConstants.RPCREQUEST_STATUS_SUCCESS);
+@@ -81,8 +209,9 @@
+             new JSONObject("{'success': false, 'error': '" + e.getMessage() + "'}"));
+         return result;
+       } else {
+-        throw new OBException("Unexpected exception processing physical inventory proposal: "
+-            + e.getMessage(), e, true);
++        throw new OBException(
++            "Unexpected exception processing physical inventory proposal: " + e.getMessage(), e,
++            true);
+       }
+     } finally {
+       OBContext.restorePreviousMode();
+diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/utils/InventoryProposalUtils.java b/src/org/openbravo/warehouse/advancedwarehouseoperations/utils/InventoryProposalUtils.java
+--- a/src/org/openbravo/warehouse/advancedwarehouseoperations/utils/InventoryProposalUtils.java	2019-01-16 17:34:30.000000000 +0100
++++ b/src/org/openbravo/warehouse/advancedwarehouseoperations/utils/InventoryProposalUtils.java	2020-07-02 17:48:08.825100955 +0200
+@@ -12,15 +12,21 @@
+ import java.math.BigDecimal;
+ import java.util.Date;
+ 
++import org.hibernate.criterion.Restrictions;
++import org.openbravo.base.exception.OBException;
+ import org.openbravo.base.provider.OBProvider;
+ import org.openbravo.dal.core.OBContext;
++import org.openbravo.dal.service.OBCriteria;
+ import org.openbravo.dal.service.OBDal;
+ import org.openbravo.erpCommon.utility.OBDateUtils;
+ import org.openbravo.model.common.enterprise.Locator;
++import org.openbravo.model.common.enterprise.Organization;
+ import org.openbravo.model.common.enterprise.Warehouse;
++import org.openbravo.model.common.plm.AttributeSet;
+ import org.openbravo.model.common.plm.AttributeSetInstance;
+ import org.openbravo.model.common.plm.Product;
+ import org.openbravo.model.common.uom.UOM;
++import org.openbravo.model.materialmgmt.onhandquantity.ReferencedInventory;
+ import org.openbravo.model.materialmgmt.onhandquantity.StorageDetail;
+ import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOInventoryProposal;
+ import org.openbravo.warehouse.advancedwarehouseoperations.OBAWOInventoryProposalLine;
+@@ -41,8 +47,8 @@
+       String inventoryAction) {
+     try {
+       OBContext.setAdminMode(true);
+-      OBAWOInventoryProposal inventoryProposal = OBProvider.getInstance().get(
+-          OBAWOInventoryProposal.class);
++      OBAWOInventoryProposal inventoryProposal = OBProvider.getInstance()
++          .get(OBAWOInventoryProposal.class);
+       inventoryProposal.setOrganization(warehouse.getOrganization());
+       inventoryProposal.setClient(warehouse.getClient());
+       inventoryProposal.setMovementDate(new Date());
+@@ -68,13 +74,14 @@
+    * @param quantityCount_
+    *          (Optional) quantityOnHand is the quantity present in the Stock. Quantity Count is the
+    *          updated value for this Stock
+-   * */
+-  public static void createInventoryProposalLineFromStorageDetail(
++   * @return The created {@link OBAWOInventoryProposalLine} object
++   */
++  public static OBAWOInventoryProposalLine createInventoryProposalLineFromStorageDetail(
+       OBAWOInventoryProposal inventoryProposal, StorageDetail storageDetail, Long lineNo,
+       BigDecimal quantityCount_) {
+     BigDecimal quantityCount = quantityCount_ == null ? storageDetail.getQuantityOnHand()
+         : quantityCount_;
+-    createInventoryProposalLine(inventoryProposal, lineNo, storageDetail,
++    return createInventoryProposalLine(inventoryProposal, lineNo, storageDetail,
+         storageDetail.getProduct(), storageDetail.getStorageBin(),
+         storageDetail.getQuantityOnHand(), quantityCount, storageDetail.getAttributeSetValue(),
+         storageDetail.getUOM());
+@@ -99,12 +106,13 @@
+    *          (Optional) The Attribute for which the Inventory Proposal Line is going to be created
+    * @param uom
+    *          The Base Unit of Measure of the Product
++   * @return The created {@link OBAWOInventoryProposalLine} object
+    */
+-  public static void insertInventoryProposalLineFromLocator(
++  public static OBAWOInventoryProposalLine insertInventoryProposalLineFromLocator(
+       OBAWOInventoryProposal inventoryProposal, Long lineNo, Locator storageBin, Product product,
+       BigDecimal quantityCount_, AttributeSetInstance attributeSetInstance, UOM uom) {
+     BigDecimal quantityCount = quantityCount_ == null ? BigDecimal.ZERO : quantityCount_;
+-    createInventoryProposalLine(inventoryProposal, lineNo, null, product, storageBin,
++    return createInventoryProposalLine(inventoryProposal, lineNo, null, product, storageBin,
+         BigDecimal.ZERO, quantityCount, attributeSetInstance, uom);
+ 
+   }
+@@ -128,15 +136,16 @@
+    *          (Optional) The Attribute for which the Inventory Proposal Line is going to be created
+    * @param uom
+    *          The Base Unit of Measure of the Product
++   * @return The created {@link OBAWOInventoryProposalLine} object
+    */
+-  private static void createInventoryProposalLine(OBAWOInventoryProposal inventoryProposal,
+-      Long lineNo, StorageDetail storageDetail, Product product, Locator storageBin,
+-      BigDecimal quantityOnHand, BigDecimal quantityCount, AttributeSetInstance attributeSetValue,
+-      UOM uom) {
++  private static OBAWOInventoryProposalLine createInventoryProposalLine(
++      OBAWOInventoryProposal inventoryProposal, Long lineNo, StorageDetail storageDetail,
++      Product product, Locator storageBin, BigDecimal quantityOnHand, BigDecimal quantityCount,
++      AttributeSetInstance attributeSetValue, UOM uom) {
+     try {
+       OBContext.setAdminMode(true);
+-      OBAWOInventoryProposalLine inventoryProposalLine = OBProvider.getInstance().get(
+-          OBAWOInventoryProposalLine.class);
++      OBAWOInventoryProposalLine inventoryProposalLine = OBProvider.getInstance()
++          .get(OBAWOInventoryProposalLine.class);
+       inventoryProposalLine.setOrganization(inventoryProposal.getOrganization());
+       inventoryProposalLine.setClient(inventoryProposal.getClient());
+       inventoryProposalLine.setObawoInventoryProp(inventoryProposal);
+@@ -150,6 +159,7 @@
+       inventoryProposalLine.setUOM(uom);
+       OBDal.getInstance().save(inventoryProposalLine);
+       inventoryProposal.getOBAWOInvPropLineList().add(inventoryProposalLine);
++      return inventoryProposalLine;
+     } finally {
+       OBContext.restorePreviousMode();
+     }
+@@ -167,11 +177,95 @@
+    * @throws Exception
+    */
+   public static String completeInventoryProposalAndGenerateTasks(
+-      final OBAWOInventoryProposal inventoryProposal, final String userAssignedId) throws Exception {
++      final OBAWOInventoryProposal inventoryProposal, final String userAssignedId)
++      throws Exception {
+     inventoryProposal.setProcessed(true); // In case of exception this will be auto-rollbacked
+-    final OBAWO_BatchOfTasks batchOfTasks = CentralBroker.getNewInstance().doTheStuff(
+-        inventoryProposal, inventoryProposal.getAction(), userAssignedId, null, null);
++    final OBAWO_BatchOfTasks batchOfTasks = CentralBroker.getNewInstance()
++        .doTheStuff(inventoryProposal, inventoryProposal.getAction(), userAssignedId, null, null);
+     return Utilities.getBatchOfTasksMessage(batchOfTasks);
+   }
+ 
++  /**
++   * Returns the {@link AttributeSetInstance} linked for the given Referenced Inventory searchKey.
++   * If no Attribute set instance is found, a new instance is created
++   * 
++   * @param referenceInventorySearchKey
++   *          The Reference Inventory searchKey
++   * @param locator
++   *          The storage bin where the reference inventory is located
++   * @return An attribute set instance object
++   */
++  public static AttributeSetInstance getAttributeByReferenceInventory(
++      String referenceInventorySearchKey, Locator locator) throws Exception {
++    ReferencedInventory refInv = AWOReferencedInventoryUtils
++        .getReferenceBySearchKey(referenceInventorySearchKey);
++    Organization org = OBContext.getOBContext().getCurrentOrganization();
++    if (refInv != null) {
++      final OBCriteria<AttributeSetInstance> refInvAttrCriteria = OBDal.getInstance()
++          .createCriteria(AttributeSetInstance.class);
++      refInvAttrCriteria
++          .add(Restrictions.eq(AttributeSetInstance.PROPERTY_REFERENCEDINVENTORY, refInv));
++      refInvAttrCriteria.add(Restrictions.eq(AttributeSetInstance.PROPERTY_ATTRIBUTESET,
++          OBDal.getInstance().get(AttributeSet.class, "0")));
++      refInvAttrCriteria
++          .add(Restrictions.eq(AttributeSetInstance.PROPERTY_PARENTATTRIBUTESETINSTANCE,
++              OBDal.getInstance().get(AttributeSetInstance.class, "0")));
++      refInvAttrCriteria.add(Restrictions.isNull(AttributeSetInstance.PROPERTY_LOT));
++      refInvAttrCriteria.add(Restrictions.isNull(AttributeSetInstance.PROPERTY_LOTNAME));
++      refInvAttrCriteria.add(Restrictions.isNull(AttributeSetInstance.PROPERTY_SERIALNO));
++      refInvAttrCriteria.setFilterOnReadableOrganization(false);
++      refInvAttrCriteria.setMaxResults(1);
++
++      if (refInvAttrCriteria.uniqueResult() != null) {
++        AttributeSetInstance refInvAttr = (AttributeSetInstance) refInvAttrCriteria.uniqueResult();
++
++        final OBCriteria<StorageDetail> refInvAttrStockCriteria = OBDal.getInstance()
++            .createCriteria(StorageDetail.class);
++        refInvAttrStockCriteria
++            .add(Restrictions.eq(StorageDetail.PROPERTY_ATTRIBUTESETVALUE, refInvAttr));
++        refInvAttrStockCriteria.add(Restrictions.ne(StorageDetail.PROPERTY_STORAGEBIN, locator));
++        refInvAttrStockCriteria.setFilterOnReadableOrganization(false);
++        refInvAttrStockCriteria.setMaxResults(1);
++
++        if (refInvAttrStockCriteria.uniqueResult() == null) {
++          refInv.setOrganization(org);
++          refInv.setClient(org.getClient());
++          refInvAttr.setOrganization(org);
++          refInvAttr.setClient(org.getClient());
++        }
++        return refInvAttr;
++      } else {
++        return createAttributeByReferenceInventory(refInv, org);
++      }
++
++    } else {
++      throw new OBException("Unexpected exception getting reference inventory");
++    }
++  }
++
++  /**
++   * Creates a new {@link AttributeSetInstance} for the given {@link ReferencedInventory} and
++   * {@link Organization}
++   * 
++   * @param refInv
++   *          The Reference Inventory from where the attribute set instance will be created
++   * @param org
++   *          The organization to set into the attribute set instance
++   * @return An attribute set instance object
++   */
++  public static AttributeSetInstance createAttributeByReferenceInventory(ReferencedInventory refInv,
++      Organization org) {
++    AttributeSetInstance refInvAttr = OBProvider.getInstance().get(AttributeSetInstance.class);
++    refInvAttr.setOrganization(org);
++    refInvAttr.setClient(org.getClient());
++    refInvAttr.setDescription("[" + refInv.getSearchKey() + "]");
++    refInvAttr.setReferencedInventory(refInv);
++    refInvAttr.setAttributeSet(OBDal.getInstance().get(AttributeSet.class, "0"));
++    refInvAttr
++        .setParentAttributeSetInstance(OBDal.getInstance().get(AttributeSetInstance.class, "0"));
++    OBDal.getInstance().save(refInvAttr);
++    OBDal.getInstance().flush();
++    return refInvAttr;
++  }
++
+ }
+diff -ru --new-file a/src-db/database/model/tables/OBAWO_INVENTORY_PROP.xml b/src-db/database/model/tables/OBAWO_INVENTORY_PROP.xml
+--- a/src-db/database/model/tables/OBAWO_INVENTORY_PROP.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/model/tables/OBAWO_INVENTORY_PROP.xml	2020-07-01 11:48:26.652130486 +0200
+@@ -61,12 +61,19 @@
+         <default><![CDATA[CYC]]></default>
+         <onCreateDefault/>
+       </column>
++      <column name="M_REFINVENTORY_ID" primaryKey="false" required="false" type="VARCHAR" size="32" autoIncrement="false">
++        <default/>
++        <onCreateDefault/>
++      </column>
+       <foreign-key foreignTable="AD_CLIENT" name="OBAWO_INVENTORY_PROP_AD_CLIENT">
+         <reference local="AD_CLIENT_ID" foreign="AD_CLIENT_ID"/>
+       </foreign-key>
+       <foreign-key foreignTable="AD_ORG" name="OBAWO_INVENTORY_PROP_AD_ORG">
+         <reference local="AD_ORG_ID" foreign="AD_ORG_ID"/>
+       </foreign-key>
++      <foreign-key foreignTable="M_REFINVENTORY" name="OBAWO_INVENTORY_PROP_M_REFINV">
++        <reference local="M_REFINVENTORY_ID" foreign="M_REFINVENTORY_ID"/>
++      </foreign-key>
+       <foreign-key foreignTable="M_WAREHOUSE" name="OBAWO_INVENTORY_PROP_M_WH">
+         <reference local="M_WAREHOUSE_ID" foreign="M_WAREHOUSE_ID"/>
+       </foreign-key>
+diff -ru --new-file a/src-db/database/model/tables/OBAWO_INVPROP_LINE.xml b/src-db/database/model/tables/OBAWO_INVPROP_LINE.xml
+--- a/src-db/database/model/tables/OBAWO_INVPROP_LINE.xml	2020-01-16 08:36:39.000000000 +0100
++++ b/src-db/database/model/tables/OBAWO_INVPROP_LINE.xml	2020-07-01 11:49:12.172428283 +0200
+@@ -73,6 +73,14 @@
+         <default/>
+         <onCreateDefault/>
+       </column>
++      <column name="M_REFINVENTORY_ID" primaryKey="false" required="false" type="VARCHAR" size="32" autoIncrement="false">
++        <default/>
++        <onCreateDefault/>
++      </column>
++      <column name="ISNEWINREFERENCEINVENTORY" primaryKey="false" required="false" type="CHAR" size="1" autoIncrement="false">
++        <default><![CDATA[N]]></default>
++        <onCreateDefault><![CDATA['N']]></onCreateDefault>
++      </column>
+       <foreign-key foreignTable="AD_CLIENT" name="OBAWO_INVPROP_LINE_AD_CLIENT">
+         <reference local="AD_CLIENT_ID" foreign="AD_CLIENT_ID"/>
+       </foreign-key>
+@@ -94,6 +102,9 @@
+       <foreign-key foreignTable="M_PRODUCT" name="OBAWO_INVPROP_LINE_M_PRODUCT">
+         <reference local="M_PRODUCT_ID" foreign="M_PRODUCT_ID"/>
+       </foreign-key>
++      <foreign-key foreignTable="M_REFINVENTORY" name="OBAWO_INVPROP_LINE_M_REFINV">
++        <reference local="M_REFINVENTORY_ID" foreign="M_REFINVENTORY_ID"/>
++      </foreign-key>
+       <index name="OBAWO_INVPROP_LINE_INVPROP" unique="false">
+         <index-column name="OBAWO_INVENTORY_PROP_ID"/>
+       </index>
+diff -ru --new-file a/src-db/database/sourcedata/AD_COLUMN.xml b/src-db/database/sourcedata/AD_COLUMN.xml
+--- a/src-db/database/sourcedata/AD_COLUMN.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/AD_COLUMN.xml	2020-07-01 11:34:03.526289092 +0200
+@@ -1467,6 +1467,44 @@
+ <!--10EE6EE72AD04629935DD64912BD9585-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
+ <!--10EE6EE72AD04629935DD64912BD9585--></AD_COLUMN>
+ 
++<!--11020D1AEC2D4BE4BCF68B554C8FA537--><AD_COLUMN>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_COLUMN_ID><![CDATA[11020D1AEC2D4BE4BCF68B554C8FA537]]></AD_COLUMN_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <NAME><![CDATA[Referenced Inventory]]></NAME>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <HELP><![CDATA[ID for a Referenced Inventory]]></HELP>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <COLUMNNAME><![CDATA[M_Refinventory_ID]]></COLUMNNAME>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_TABLE_ID><![CDATA[061D9874143D48D8B93BAF096DD93A2F]]></AD_TABLE_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_REFERENCE_ID><![CDATA[19]]></AD_REFERENCE_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <FIELDLENGTH><![CDATA[32]]></FIELDLENGTH>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISKEY><![CDATA[N]]></ISKEY>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISPARENT><![CDATA[N]]></ISPARENT>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISMANDATORY><![CDATA[N]]></ISMANDATORY>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISUPDATEABLE><![CDATA[Y]]></ISUPDATEABLE>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISIDENTIFIER><![CDATA[N]]></ISIDENTIFIER>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <SEQNO><![CDATA[160]]></SEQNO>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISTRANSLATED><![CDATA[N]]></ISTRANSLATED>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISENCRYPTED><![CDATA[N]]></ISENCRYPTED>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISSELECTIONCOLUMN><![CDATA[N]]></ISSELECTIONCOLUMN>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_ELEMENT_ID><![CDATA[E13E9A85932B43B58C569625C5662AE3]]></AD_ELEMENT_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISSESSIONATTR><![CDATA[N]]></ISSESSIONATTR>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISSECONDARYKEY><![CDATA[N]]></ISSECONDARYKEY>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISDESENCRYPTABLE><![CDATA[N]]></ISDESENCRYPTABLE>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <DEVELOPMENTSTATUS><![CDATA[RE]]></DEVELOPMENTSTATUS>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <POSITION><![CDATA[16]]></POSITION>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISTRANSIENT><![CDATA[N]]></ISTRANSIENT>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISAUTOSAVE><![CDATA[Y]]></ISAUTOSAVE>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <VALIDATEONNEW><![CDATA[Y]]></VALIDATEONNEW>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <IMAGESIZEVALUESACTION><![CDATA[N]]></IMAGESIZEVALUESACTION>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ISUSEDSEQUENCE><![CDATA[N]]></ISUSEDSEQUENCE>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ALLOWSORTING><![CDATA[Y]]></ALLOWSORTING>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ALLOWFILTERING><![CDATA[Y]]></ALLOWFILTERING>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537-->  <IS_CHILD_PROPERTY_IN_PARENT><![CDATA[N]]></IS_CHILD_PROPERTY_IN_PARENT>
++<!--11020D1AEC2D4BE4BCF68B554C8FA537--></AD_COLUMN>
++
+ <!--111B35653FBB401581A38BBA512EFF5E--><AD_COLUMN>
+ <!--111B35653FBB401581A38BBA512EFF5E-->  <AD_COLUMN_ID><![CDATA[111B35653FBB401581A38BBA512EFF5E]]></AD_COLUMN_ID>
+ <!--111B35653FBB401581A38BBA512EFF5E-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -1625,6 +1663,44 @@
+ <!--141CDC0A88A04DF3BB21B07A4C0A3788-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
+ <!--141CDC0A88A04DF3BB21B07A4C0A3788--></AD_COLUMN>
+ 
++<!--1463382E9E3242B39061EA954C5E181A--><AD_COLUMN>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_COLUMN_ID><![CDATA[1463382E9E3242B39061EA954C5E181A]]></AD_COLUMN_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <NAME><![CDATA[New In Reference Inventory]]></NAME>
++<!--1463382E9E3242B39061EA954C5E181A-->  <COLUMNNAME><![CDATA[Isnewinreferenceinventory]]></COLUMNNAME>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_TABLE_ID><![CDATA[C499D5BC306144F19A9F31E1F84D678B]]></AD_TABLE_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_REFERENCE_ID><![CDATA[20]]></AD_REFERENCE_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <FIELDLENGTH><![CDATA[1]]></FIELDLENGTH>
++<!--1463382E9E3242B39061EA954C5E181A-->  <DEFAULTVALUE><![CDATA[N]]></DEFAULTVALUE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISKEY><![CDATA[N]]></ISKEY>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISPARENT><![CDATA[N]]></ISPARENT>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISMANDATORY><![CDATA[N]]></ISMANDATORY>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISUPDATEABLE><![CDATA[Y]]></ISUPDATEABLE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISIDENTIFIER><![CDATA[N]]></ISIDENTIFIER>
++<!--1463382E9E3242B39061EA954C5E181A-->  <SEQNO><![CDATA[220]]></SEQNO>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISTRANSLATED><![CDATA[N]]></ISTRANSLATED>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISENCRYPTED><![CDATA[N]]></ISENCRYPTED>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISSELECTIONCOLUMN><![CDATA[N]]></ISSELECTIONCOLUMN>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_ELEMENT_ID><![CDATA[EF29B5C7984649509546AE585528A945]]></AD_ELEMENT_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISSESSIONATTR><![CDATA[N]]></ISSESSIONATTR>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISSECONDARYKEY><![CDATA[N]]></ISSECONDARYKEY>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISDESENCRYPTABLE><![CDATA[N]]></ISDESENCRYPTABLE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <DEVELOPMENTSTATUS><![CDATA[RE]]></DEVELOPMENTSTATUS>
++<!--1463382E9E3242B39061EA954C5E181A-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--1463382E9E3242B39061EA954C5E181A-->  <POSITION><![CDATA[20]]></POSITION>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISTRANSIENT><![CDATA[N]]></ISTRANSIENT>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISAUTOSAVE><![CDATA[Y]]></ISAUTOSAVE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <VALIDATEONNEW><![CDATA[Y]]></VALIDATEONNEW>
++<!--1463382E9E3242B39061EA954C5E181A-->  <IMAGESIZEVALUESACTION><![CDATA[N]]></IMAGESIZEVALUESACTION>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ISUSEDSEQUENCE><![CDATA[N]]></ISUSEDSEQUENCE>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ALLOWSORTING><![CDATA[Y]]></ALLOWSORTING>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ALLOWFILTERING><![CDATA[Y]]></ALLOWFILTERING>
++<!--1463382E9E3242B39061EA954C5E181A-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
++<!--1463382E9E3242B39061EA954C5E181A-->  <IS_CHILD_PROPERTY_IN_PARENT><![CDATA[N]]></IS_CHILD_PROPERTY_IN_PARENT>
++<!--1463382E9E3242B39061EA954C5E181A--></AD_COLUMN>
++
+ <!--149BAFEC972848C39CE2F51DDE2226E1--><AD_COLUMN>
+ <!--149BAFEC972848C39CE2F51DDE2226E1-->  <AD_COLUMN_ID><![CDATA[149BAFEC972848C39CE2F51DDE2226E1]]></AD_COLUMN_ID>
+ <!--149BAFEC972848C39CE2F51DDE2226E1-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -12986,7 +13062,7 @@
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <ISDESENCRYPTABLE><![CDATA[N]]></ISDESENCRYPTABLE>
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <DEVELOPMENTSTATUS><![CDATA[RE]]></DEVELOPMENTSTATUS>
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
+-<!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <POSITION><![CDATA[16]]></POSITION>
++<!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <POSITION><![CDATA[15]]></POSITION>
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <ISTRANSIENT><![CDATA[N]]></ISTRANSIENT>
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <ISAUTOSAVE><![CDATA[Y]]></ISAUTOSAVE>
+ <!--83122A0FBCDB4C83B4CD26FA6916FFDA-->  <VALIDATEONNEW><![CDATA[Y]]></VALIDATEONNEW>
+@@ -13918,6 +13994,44 @@
+ <!--93153D40F4864DFD99ADFBAC133C60CB-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
+ <!--93153D40F4864DFD99ADFBAC133C60CB--></AD_COLUMN>
+ 
++<!--931C2322F0134B2B95DC442F7299378D--><AD_COLUMN>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_COLUMN_ID><![CDATA[931C2322F0134B2B95DC442F7299378D]]></AD_COLUMN_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--931C2322F0134B2B95DC442F7299378D-->  <NAME><![CDATA[Referenced Inventory]]></NAME>
++<!--931C2322F0134B2B95DC442F7299378D-->  <HELP><![CDATA[ID for a Referenced Inventory]]></HELP>
++<!--931C2322F0134B2B95DC442F7299378D-->  <COLUMNNAME><![CDATA[M_Refinventory_ID]]></COLUMNNAME>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_TABLE_ID><![CDATA[C499D5BC306144F19A9F31E1F84D678B]]></AD_TABLE_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_REFERENCE_ID><![CDATA[19]]></AD_REFERENCE_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <FIELDLENGTH><![CDATA[32]]></FIELDLENGTH>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISKEY><![CDATA[N]]></ISKEY>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISPARENT><![CDATA[N]]></ISPARENT>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISMANDATORY><![CDATA[N]]></ISMANDATORY>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISUPDATEABLE><![CDATA[Y]]></ISUPDATEABLE>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISIDENTIFIER><![CDATA[N]]></ISIDENTIFIER>
++<!--931C2322F0134B2B95DC442F7299378D-->  <SEQNO><![CDATA[210]]></SEQNO>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISTRANSLATED><![CDATA[N]]></ISTRANSLATED>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISENCRYPTED><![CDATA[N]]></ISENCRYPTED>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISSELECTIONCOLUMN><![CDATA[N]]></ISSELECTIONCOLUMN>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_ELEMENT_ID><![CDATA[E13E9A85932B43B58C569625C5662AE3]]></AD_ELEMENT_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISSESSIONATTR><![CDATA[N]]></ISSESSIONATTR>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISSECONDARYKEY><![CDATA[N]]></ISSECONDARYKEY>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISDESENCRYPTABLE><![CDATA[N]]></ISDESENCRYPTABLE>
++<!--931C2322F0134B2B95DC442F7299378D-->  <DEVELOPMENTSTATUS><![CDATA[RE]]></DEVELOPMENTSTATUS>
++<!--931C2322F0134B2B95DC442F7299378D-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--931C2322F0134B2B95DC442F7299378D-->  <POSITION><![CDATA[19]]></POSITION>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISTRANSIENT><![CDATA[N]]></ISTRANSIENT>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISAUTOSAVE><![CDATA[Y]]></ISAUTOSAVE>
++<!--931C2322F0134B2B95DC442F7299378D-->  <VALIDATEONNEW><![CDATA[Y]]></VALIDATEONNEW>
++<!--931C2322F0134B2B95DC442F7299378D-->  <IMAGESIZEVALUESACTION><![CDATA[N]]></IMAGESIZEVALUESACTION>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ISUSEDSEQUENCE><![CDATA[N]]></ISUSEDSEQUENCE>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ALLOWSORTING><![CDATA[Y]]></ALLOWSORTING>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ALLOWFILTERING><![CDATA[Y]]></ALLOWFILTERING>
++<!--931C2322F0134B2B95DC442F7299378D-->  <ALLOWED_CROSS_ORG_LINK><![CDATA[N]]></ALLOWED_CROSS_ORG_LINK>
++<!--931C2322F0134B2B95DC442F7299378D-->  <IS_CHILD_PROPERTY_IN_PARENT><![CDATA[N]]></IS_CHILD_PROPERTY_IN_PARENT>
++<!--931C2322F0134B2B95DC442F7299378D--></AD_COLUMN>
++
+ <!--931CB7D9912747AB9CC76BD551D2F59D--><AD_COLUMN>
+ <!--931CB7D9912747AB9CC76BD551D2F59D-->  <AD_COLUMN_ID><![CDATA[931CB7D9912747AB9CC76BD551D2F59D]]></AD_COLUMN_ID>
+ <!--931CB7D9912747AB9CC76BD551D2F59D-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/src-db/database/sourcedata/AD_ELEMENT.xml b/src-db/database/sourcedata/AD_ELEMENT.xml
+--- a/src-db/database/sourcedata/AD_ELEMENT.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/AD_ELEMENT.xml	2020-07-01 11:35:00.494683247 +0200
+@@ -2232,6 +2232,18 @@
+ <!--EF0D4CECFC8C47A5883B0E5DC933E293-->  <ISGLOSSARY><![CDATA[N]]></ISGLOSSARY>
+ <!--EF0D4CECFC8C47A5883B0E5DC933E293--></AD_ELEMENT>
+ 
++<!--EF29B5C7984649509546AE585528A945--><AD_ELEMENT>
++<!--EF29B5C7984649509546AE585528A945-->  <AD_ELEMENT_ID><![CDATA[EF29B5C7984649509546AE585528A945]]></AD_ELEMENT_ID>
++<!--EF29B5C7984649509546AE585528A945-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--EF29B5C7984649509546AE585528A945-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--EF29B5C7984649509546AE585528A945-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--EF29B5C7984649509546AE585528A945-->  <COLUMNNAME><![CDATA[Isnewinreferenceinventory]]></COLUMNNAME>
++<!--EF29B5C7984649509546AE585528A945-->  <NAME><![CDATA[New In Reference Inventory]]></NAME>
++<!--EF29B5C7984649509546AE585528A945-->  <PRINTNAME><![CDATA[New In Reference Inventory]]></PRINTNAME>
++<!--EF29B5C7984649509546AE585528A945-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--EF29B5C7984649509546AE585528A945-->  <ISGLOSSARY><![CDATA[N]]></ISGLOSSARY>
++<!--EF29B5C7984649509546AE585528A945--></AD_ELEMENT>
++
+ <!--EFFBCE7847B74C789988867DF61A77A6--><AD_ELEMENT>
+ <!--EFFBCE7847B74C789988867DF61A77A6-->  <AD_ELEMENT_ID><![CDATA[EFFBCE7847B74C789988867DF61A77A6]]></AD_ELEMENT_ID>
+ <!--EFFBCE7847B74C789988867DF61A77A6-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/src-db/database/sourcedata/AD_FIELD.xml b/src-db/database/sourcedata/AD_FIELD.xml
+--- a/src-db/database/sourcedata/AD_FIELD.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/AD_FIELD.xml	2020-07-01 11:36:18.495223727 +0200
+@@ -5577,6 +5577,33 @@
+ <!--3177566E2981432D80CC7CBAA18417CE-->  <EM_OBUIAPP_SHOWSUMMARY><![CDATA[N]]></EM_OBUIAPP_SHOWSUMMARY>
+ <!--3177566E2981432D80CC7CBAA18417CE--></AD_FIELD>
+ 
++<!--318FC31C6B0B4408B9B3C396407ECDD9--><AD_FIELD>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_FIELD_ID><![CDATA[318FC31C6B0B4408B9B3C396407ECDD9]]></AD_FIELD_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <NAME><![CDATA[Referenced Inventory]]></NAME>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <HELP><![CDATA[ID for a Referenced Inventory]]></HELP>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISCENTRALLYMAINTAINED><![CDATA[Y]]></ISCENTRALLYMAINTAINED>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_TAB_ID><![CDATA[74B191D9289F4CB88FAFE4125095DE08]]></AD_TAB_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_COLUMN_ID><![CDATA[11020D1AEC2D4BE4BCF68B554C8FA537]]></AD_COLUMN_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <IGNOREINWAD><![CDATA[N]]></IGNOREINWAD>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISDISPLAYED><![CDATA[Y]]></ISDISPLAYED>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <DISPLAYLENGTH><![CDATA[32]]></DISPLAYLENGTH>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISREADONLY><![CDATA[Y]]></ISREADONLY>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <SEQNO><![CDATA[80]]></SEQNO>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISSAMELINE><![CDATA[N]]></ISSAMELINE>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISFIELDONLY><![CDATA[N]]></ISFIELDONLY>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISENCRYPTED><![CDATA[N]]></ISENCRYPTED>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <SHOWINRELATION><![CDATA[N]]></SHOWINRELATION>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISFIRSTFOCUSEDFIELD><![CDATA[N]]></ISFIRSTFOCUSEDFIELD>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <STARTINODDCOLUMN><![CDATA[N]]></STARTINODDCOLUMN>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <STARTNEWLINE><![CDATA[N]]></STARTNEWLINE>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <ISSHOWNINSTATUSBAR><![CDATA[N]]></ISSHOWNINSTATUSBAR>
++<!--318FC31C6B0B4408B9B3C396407ECDD9-->  <EM_OBUIAPP_SHOWSUMMARY><![CDATA[N]]></EM_OBUIAPP_SHOWSUMMARY>
++<!--318FC31C6B0B4408B9B3C396407ECDD9--></AD_FIELD>
++
+ <!--320D2D9CB75E4622AB39CD1C85C34AB5--><AD_FIELD>
+ <!--320D2D9CB75E4622AB39CD1C85C34AB5-->  <AD_FIELD_ID><![CDATA[320D2D9CB75E4622AB39CD1C85C34AB5]]></AD_FIELD_ID>
+ <!--320D2D9CB75E4622AB39CD1C85C34AB5-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -14914,6 +14941,33 @@
+ <!--523168F1088B49E0A8E5DBD5AAEC81F8-->  <EM_OBUIAPP_SHOWSUMMARY><![CDATA[N]]></EM_OBUIAPP_SHOWSUMMARY>
+ <!--523168F1088B49E0A8E5DBD5AAEC81F8--></AD_FIELD>
+ 
++<!--52E9694EBE554B8A8C32524555A0BBC0--><AD_FIELD>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_FIELD_ID><![CDATA[52E9694EBE554B8A8C32524555A0BBC0]]></AD_FIELD_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <NAME><![CDATA[Referenced Inventory]]></NAME>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <HELP><![CDATA[ID for a Referenced Inventory]]></HELP>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISCENTRALLYMAINTAINED><![CDATA[Y]]></ISCENTRALLYMAINTAINED>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_TAB_ID><![CDATA[4B9ECE7F85B7465AA55430402749F50B]]></AD_TAB_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_COLUMN_ID><![CDATA[931C2322F0134B2B95DC442F7299378D]]></AD_COLUMN_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <IGNOREINWAD><![CDATA[N]]></IGNOREINWAD>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISDISPLAYED><![CDATA[Y]]></ISDISPLAYED>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <DISPLAYLENGTH><![CDATA[32]]></DISPLAYLENGTH>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISREADONLY><![CDATA[Y]]></ISREADONLY>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <SEQNO><![CDATA[100]]></SEQNO>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISSAMELINE><![CDATA[N]]></ISSAMELINE>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISFIELDONLY><![CDATA[N]]></ISFIELDONLY>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISENCRYPTED><![CDATA[N]]></ISENCRYPTED>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <SHOWINRELATION><![CDATA[N]]></SHOWINRELATION>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISFIRSTFOCUSEDFIELD><![CDATA[N]]></ISFIRSTFOCUSEDFIELD>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <STARTINODDCOLUMN><![CDATA[N]]></STARTINODDCOLUMN>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <STARTNEWLINE><![CDATA[N]]></STARTNEWLINE>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <ISSHOWNINSTATUSBAR><![CDATA[N]]></ISSHOWNINSTATUSBAR>
++<!--52E9694EBE554B8A8C32524555A0BBC0-->  <EM_OBUIAPP_SHOWSUMMARY><![CDATA[N]]></EM_OBUIAPP_SHOWSUMMARY>
++<!--52E9694EBE554B8A8C32524555A0BBC0--></AD_FIELD>
++
+ <!--5352F42357BD4A9980586F654A330A66--><AD_FIELD>
+ <!--5352F42357BD4A9980586F654A330A66-->  <AD_FIELD_ID><![CDATA[5352F42357BD4A9980586F654A330A66]]></AD_FIELD_ID>
+ <!--5352F42357BD4A9980586F654A330A66-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/src-db/database/sourcedata/AD_MESSAGE.xml b/src-db/database/sourcedata/AD_MESSAGE.xml
+--- a/src-db/database/sourcedata/AD_MESSAGE.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/AD_MESSAGE.xml	2020-07-01 11:39:43.136645922 +0200
+@@ -60,6 +60,18 @@
+ <!--05639D57316D4EFC8E0BAD4BF37E4221-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--05639D57316D4EFC8E0BAD4BF37E4221--></AD_MESSAGE>
+ 
++<!--056AA10E4A2F4E508DBD1E2E76C838DC--><AD_MESSAGE>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <AD_MESSAGE_ID><![CDATA[056AA10E4A2F4E508DBD1E2E76C838DC]]></AD_MESSAGE_ID>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <VALUE><![CDATA[OBAWO_ReferenceInventoryLbl]]></VALUE>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <MSGTEXT><![CDATA[Ref. Inventory]]></MSGTEXT>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--056AA10E4A2F4E508DBD1E2E76C838DC--></AD_MESSAGE>
++
+ <!--05E72942826942BFB585686CC4BED83A--><AD_MESSAGE>
+ <!--05E72942826942BFB585686CC4BED83A-->  <AD_MESSAGE_ID><![CDATA[05E72942826942BFB585686CC4BED83A]]></AD_MESSAGE_ID>
+ <!--05E72942826942BFB585686CC4BED83A-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -1501,6 +1513,18 @@
+ <!--612EAD1B38DE41CE93FD34A6200FF606-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--612EAD1B38DE41CE93FD34A6200FF606--></AD_MESSAGE>
+ 
++<!--61572F0B67364FFC9487AB227F7D2F4F--><AD_MESSAGE>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <AD_MESSAGE_ID><![CDATA[61572F0B67364FFC9487AB227F7D2F4F]]></AD_MESSAGE_ID>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <VALUE><![CDATA[OBAWO_CreateCountListMessage]]></VALUE>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <MSGTEXT><![CDATA[%0 lines will be created. If you have lines in the current inventory, they will be deleted. Do you wish to continue?]]></MSGTEXT>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--61572F0B67364FFC9487AB227F7D2F4F-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--61572F0B67364FFC9487AB227F7D2F4F--></AD_MESSAGE>
++
+ <!--61A9F995116C42F78B1D6174F9B22436--><AD_MESSAGE>
+ <!--61A9F995116C42F78B1D6174F9B22436-->  <AD_MESSAGE_ID><![CDATA[61A9F995116C42F78B1D6174F9B22436]]></AD_MESSAGE_ID>
+ <!--61A9F995116C42F78B1D6174F9B22436-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -1621,6 +1645,18 @@
+ <!--6B7FA02E5DFA472C8AC3692461B8FF84-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--6B7FA02E5DFA472C8AC3692461B8FF84--></AD_MESSAGE>
+ 
++<!--6CC0A328209744F390E9B3207BD3E38E--><AD_MESSAGE>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <AD_MESSAGE_ID><![CDATA[6CC0A328209744F390E9B3207BD3E38E]]></AD_MESSAGE_ID>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <VALUE><![CDATA[OBAWO_CreateCountListTitle]]></VALUE>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <MSGTEXT><![CDATA[Create count list]]></MSGTEXT>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--6CC0A328209744F390E9B3207BD3E38E-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--6CC0A328209744F390E9B3207BD3E38E--></AD_MESSAGE>
++
+ <!--6DCD492A65E84F8B823CD2655F5445E8--><AD_MESSAGE>
+ <!--6DCD492A65E84F8B823CD2655F5445E8-->  <AD_MESSAGE_ID><![CDATA[6DCD492A65E84F8B823CD2655F5445E8]]></AD_MESSAGE_ID>
+ <!--6DCD492A65E84F8B823CD2655F5445E8-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -1705,6 +1741,18 @@
+ <!--701915D07575446680D78FFEB4E3AD4D-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--701915D07575446680D78FFEB4E3AD4D--></AD_MESSAGE>
+ 
++<!--71746FF788804147A38CDCB5EF0F98DA--><AD_MESSAGE>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <AD_MESSAGE_ID><![CDATA[71746FF788804147A38CDCB5EF0F98DA]]></AD_MESSAGE_ID>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <VALUE><![CDATA[OBAWO_FieldLabel_ReferenceInventory]]></VALUE>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <MSGTEXT><![CDATA[Ref. Inv.]]></MSGTEXT>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--71746FF788804147A38CDCB5EF0F98DA-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--71746FF788804147A38CDCB5EF0F98DA--></AD_MESSAGE>
++
+ <!--7268BC0FFDA7440EB4ECE07FD67F7A19--><AD_MESSAGE>
+ <!--7268BC0FFDA7440EB4ECE07FD67F7A19-->  <AD_MESSAGE_ID><![CDATA[7268BC0FFDA7440EB4ECE07FD67F7A19]]></AD_MESSAGE_ID>
+ <!--7268BC0FFDA7440EB4ECE07FD67F7A19-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -2005,6 +2053,18 @@
+ <!--7F7B39D9E868439BA95658AE2F941715-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--7F7B39D9E868439BA95658AE2F941715--></AD_MESSAGE>
+ 
++<!--7F816FC0D2764EC79076E613641B8ED3--><AD_MESSAGE>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <AD_MESSAGE_ID><![CDATA[7F816FC0D2764EC79076E613641B8ED3]]></AD_MESSAGE_ID>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <VALUE><![CDATA[OBAWO_PhysicalInventoryCountReference]]></VALUE>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <MSGTEXT><![CDATA[Count RI]]></MSGTEXT>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--7F816FC0D2764EC79076E613641B8ED3-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--7F816FC0D2764EC79076E613641B8ED3--></AD_MESSAGE>
++
+ <!--80BEC7BAAB714727BED8C5CB0F99C886--><AD_MESSAGE>
+ <!--80BEC7BAAB714727BED8C5CB0F99C886-->  <AD_MESSAGE_ID><![CDATA[80BEC7BAAB714727BED8C5CB0F99C886]]></AD_MESSAGE_ID>
+ <!--80BEC7BAAB714727BED8C5CB0F99C886-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -2521,6 +2581,18 @@
+ <!--9A322919F7F7432AA3C962355D2BDD6F-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--9A322919F7F7432AA3C962355D2BDD6F--></AD_MESSAGE>
+ 
++<!--9B6CD1E851254ECDBAA96DC8166DA31B--><AD_MESSAGE>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <AD_MESSAGE_ID><![CDATA[9B6CD1E851254ECDBAA96DC8166DA31B]]></AD_MESSAGE_ID>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <VALUE><![CDATA[OBAWO_LocatorRefInventorySelectorHeader]]></VALUE>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <MSGTEXT><![CDATA[Locator / Reference Inventory]]></MSGTEXT>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--9B6CD1E851254ECDBAA96DC8166DA31B--></AD_MESSAGE>
++
+ <!--9C99EF8740C748D6BF375393EAF38245--><AD_MESSAGE>
+ <!--9C99EF8740C748D6BF375393EAF38245-->  <AD_MESSAGE_ID><![CDATA[9C99EF8740C748D6BF375393EAF38245]]></AD_MESSAGE_ID>
+ <!--9C99EF8740C748D6BF375393EAF38245-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -2581,6 +2653,18 @@
+ <!--9DCD0265898842EFA506624613D35332-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--9DCD0265898842EFA506624613D35332--></AD_MESSAGE>
+ 
++<!--9F590BF34952414DA87016564BE814EE--><AD_MESSAGE>
++<!--9F590BF34952414DA87016564BE814EE-->  <AD_MESSAGE_ID><![CDATA[9F590BF34952414DA87016564BE814EE]]></AD_MESSAGE_ID>
++<!--9F590BF34952414DA87016564BE814EE-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--9F590BF34952414DA87016564BE814EE-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--9F590BF34952414DA87016564BE814EE-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--9F590BF34952414DA87016564BE814EE-->  <VALUE><![CDATA[OBAWO_LocatorLbl]]></VALUE>
++<!--9F590BF34952414DA87016564BE814EE-->  <MSGTEXT><![CDATA[Locator]]></MSGTEXT>
++<!--9F590BF34952414DA87016564BE814EE-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--9F590BF34952414DA87016564BE814EE-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--9F590BF34952414DA87016564BE814EE-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--9F590BF34952414DA87016564BE814EE--></AD_MESSAGE>
++
+ <!--9F7A88BEFD474E5DAAAFF0094B158157--><AD_MESSAGE>
+ <!--9F7A88BEFD474E5DAAAFF0094B158157-->  <AD_MESSAGE_ID><![CDATA[9F7A88BEFD474E5DAAAFF0094B158157]]></AD_MESSAGE_ID>
+ <!--9F7A88BEFD474E5DAAAFF0094B158157-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+@@ -3781,6 +3865,18 @@
+ <!--E4B462F0540B422E854FE5797486FAAC-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
+ <!--E4B462F0540B422E854FE5797486FAAC--></AD_MESSAGE>
+ 
++<!--E629607DB1FC46BEA6159F1F06E8F54E--><AD_MESSAGE>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <AD_MESSAGE_ID><![CDATA[E629607DB1FC46BEA6159F1F06E8F54E]]></AD_MESSAGE_ID>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <VALUE><![CDATA[OBAWO_AddPIPCountList]]></VALUE>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <MSGTEXT><![CDATA[Create Count List]]></MSGTEXT>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <MSGTYPE><![CDATA[I]]></MSGTYPE>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--E629607DB1FC46BEA6159F1F06E8F54E-->  <ISINCLUDEINI18N><![CDATA[N]]></ISINCLUDEINI18N>
++<!--E629607DB1FC46BEA6159F1F06E8F54E--></AD_MESSAGE>
++
+ <!--E6DE2360C64143E9AD09F986E5DD9BFC--><AD_MESSAGE>
+ <!--E6DE2360C64143E9AD09F986E5DD9BFC-->  <AD_MESSAGE_ID><![CDATA[E6DE2360C64143E9AD09F986E5DD9BFC]]></AD_MESSAGE_ID>
+ <!--E6DE2360C64143E9AD09F986E5DD9BFC-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/src-db/database/sourcedata/OBAWO_INV_TRAN_TYPE.xml b/src-db/database/sourcedata/OBAWO_INV_TRAN_TYPE.xml
+--- a/src-db/database/sourcedata/OBAWO_INV_TRAN_TYPE.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/OBAWO_INV_TRAN_TYPE.xml	2020-07-01 11:49:53.092696177 +0200
+@@ -201,6 +201,29 @@
+ <!--79B282151B6C414B86EA69AD719A77E7-->  <BEHAVEASGROUPWITHRI><![CDATA[Y]]></BEHAVEASGROUPWITHRI>
+ <!--79B282151B6C414B86EA69AD719A77E7--></OBAWO_INV_TRAN_TYPE>
+ 
++<!--964F49389259466AB5C574EC4AA1112D--><OBAWO_INV_TRAN_TYPE>
++<!--964F49389259466AB5C574EC4AA1112D-->  <OBAWO_INV_TRAN_TYPE_ID><![CDATA[964F49389259466AB5C574EC4AA1112D]]></OBAWO_INV_TRAN_TYPE_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--964F49389259466AB5C574EC4AA1112D-->  <VALUE><![CDATA[CNT-BOX-PI]]></VALUE>
++<!--964F49389259466AB5C574EC4AA1112D-->  <NAME><![CDATA[Count + Box Physical Inventory]]></NAME>
++<!--964F49389259466AB5C574EC4AA1112D-->  <AWO_ACTION_ID><![CDATA[CNT]]></AWO_ACTION_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <BEHAVEASGROUP><![CDATA[N]]></BEHAVEASGROUP>
++<!--964F49389259466AB5C574EC4AA1112D-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <AD_TABLE_ID><![CDATA[800036]]></AD_TABLE_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <OBAWO_TRAVELSEQUENCE_FROMTO><![CDATA[FR]]></OBAWO_TRAVELSEQUENCE_FROMTO>
++<!--964F49389259466AB5C574EC4AA1112D-->  <DELTA_RESPONSE><![CDATA[NODELTA]]></DELTA_RESPONSE>
++<!--964F49389259466AB5C574EC4AA1112D-->  <ALLOW_CONFIRM_WITH_ZERO><![CDATA[Y]]></ALLOW_CONFIRM_WITH_ZERO>
++<!--964F49389259466AB5C574EC4AA1112D-->  <ALLOW_OVER><![CDATA[N]]></ALLOW_OVER>
++<!--964F49389259466AB5C574EC4AA1112D-->  <LOCTO_READ_ONLY><![CDATA[N]]></LOCTO_READ_ONLY>
++<!--964F49389259466AB5C574EC4AA1112D-->  <LOCFROM_READ_ONLY><![CDATA[N]]></LOCFROM_READ_ONLY>
++<!--964F49389259466AB5C574EC4AA1112D-->  <ISEXTERNALROUTING><![CDATA[N]]></ISEXTERNALROUTING>
++<!--964F49389259466AB5C574EC4AA1112D-->  <OBAWO_BASE_TASK_TYPE_ID><![CDATA[454EE08AFA404D6294E333589CC628F3]]></OBAWO_BASE_TASK_TYPE_ID>
++<!--964F49389259466AB5C574EC4AA1112D-->  <BEHAVEASGROUPWITHRI><![CDATA[N]]></BEHAVEASGROUPWITHRI>
++<!--964F49389259466AB5C574EC4AA1112D-->  <ALLOW_TOLERANCE><![CDATA[N]]></ALLOW_TOLERANCE>
++<!--964F49389259466AB5C574EC4AA1112D--></OBAWO_INV_TRAN_TYPE>
++
+ <!--9FDBD6472A1B4B0FA8992B4C3209DD27--><OBAWO_INV_TRAN_TYPE>
+ <!--9FDBD6472A1B4B0FA8992B4C3209DD27-->  <OBAWO_INV_TRAN_TYPE_ID><![CDATA[9FDBD6472A1B4B0FA8992B4C3209DD27]]></OBAWO_INV_TRAN_TYPE_ID>
+ <!--9FDBD6472A1B4B0FA8992B4C3209DD27-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/src-db/database/sourcedata/OBMOBC_SERVICES.xml b/src-db/database/sourcedata/OBMOBC_SERVICES.xml
+--- a/src-db/database/sourcedata/OBMOBC_SERVICES.xml	2019-01-16 17:34:30.000000000 +0100
++++ b/src-db/database/sourcedata/OBMOBC_SERVICES.xml	2020-07-01 12:46:26.401441044 +0200
+@@ -247,6 +247,19 @@
+ <!--BD034AB7BCEB4A53B12B65C260846C40-->  <SERVER_RUNTIME><![CDATA[OBSTSYN_ON_CENTRAL]]></SERVER_RUNTIME>
+ <!--BD034AB7BCEB4A53B12B65C260846C40--></OBMOBC_SERVICES>
+ 
++<!--C0E9395C9A5D409EAF6C638395C93B17--><OBMOBC_SERVICES>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <OBMOBC_SERVICES_ID><![CDATA[C0E9395C9A5D409EAF6C638395C93B17]]></OBMOBC_SERVICES_ID>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <AD_MODULE_ID><![CDATA[E09B68E8080847CF99A3AA62238C7079]]></AD_MODULE_ID>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <SERVICE><![CDATA[org.openbravo.warehouse.advancedwarehouseoperations.mobile.datasources.PIP_ReferenceInventorySelector]]></SERVICE>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <DESCRIPTION><![CDATA[This service allows to find a referenced inventory by searchKey or ID]]></DESCRIPTION>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <ROUTINGTYPE><![CDATA[Failover]]></ROUTINGTYPE>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <DEFAULTTIMEOUT><![CDATA[15]]></DEFAULTTIMEOUT>
++<!--C0E9395C9A5D409EAF6C638395C93B17-->  <SERVER_RUNTIME><![CDATA[OBSTSYN_ON_CENTRAL]]></SERVER_RUNTIME>
++<!--C0E9395C9A5D409EAF6C638395C93B17--></OBMOBC_SERVICES>
++
+ <!--D4C56E6FB89442B3B52F572E6A7FF9D9--><OBMOBC_SERVICES>
+ <!--D4C56E6FB89442B3B52F572E6A7FF9D9-->  <OBMOBC_SERVICES_ID><![CDATA[D4C56E6FB89442B3B52F572E6A7FF9D9]]></OBMOBC_SERVICES_ID>
+ <!--D4C56E6FB89442B3B52F572E6A7FF9D9-->  <AD_CLIENT_ID><![CDATA[0]]></AD_CLIENT_ID>
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/assets/css/obawo-styles.css b/web/org.openbravo.warehouse.advancedwarehouseoperations/assets/css/obawo-styles.css
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/assets/css/obawo-styles.css	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/assets/css/obawo-styles.css	2020-07-01 12:44:26.428712279 +0200
+@@ -896,4 +896,30 @@
+ }
+ .locatorButtonExpectedValue:after {
+     content: ']';
++}
++
++.renderLoading {
++    border-bottom: 1px solid #cccccc; 
++    padding: 20px; 
++    text-align: center; 
++    font-weight: bold; 
++    font-size: 30px; 
++    color: #cccccc
++}
++
++.locatorRefInvLine {
++   float: left;
++   width: 70%;
++}
++
++.typeRefInvLine {
++   float: left; 
++   width: 30%; 
++   font-weight: bold; 
++   text-align: right;
++}
++
++.detailsRefInvLine {
++   color: #888888; 
++   clear: left;
+ }
+\ No hay ningún carácter de nueva línea al final del archivo
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-menu.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-menu.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-menu.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-menu.js	2020-07-01 11:52:53.277864458 +0200
+@@ -139,11 +139,14 @@
+       fnOnline = function () {
+ 
+         me.doShowPopup({
+-          popup: 'modalLocatorSelector',
++          popup: 'modalSelectLocatorReferenceInventory',
+           args: {
+             action: 'count',
+             locatorSelectedCallback: function (selectedLocator) {
+-              OB.MobileApp.model.navigate('physicalInventoryCount/' + selectedLocator.id, false);
++              OB.MobileApp.model.navigate('physicalInventoryCount/type=locator&id=' + selectedLocator.id, false);
++            },
++            referenceInventorySelectedCallback: function(selectedRi){
++              OB.MobileApp.model.navigate('physicalInventoryCount/type=referenceInventory&id=' + selectedRi.id, false);
+             }
+           }
+         });
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-physicalinventory-productselector.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-physicalinventory-productselector.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-physicalinventory-productselector.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-physicalinventory-productselector.js	2020-07-01 12:42:55.632162808 +0200
+@@ -137,6 +137,10 @@
+     } else if (this.pip.isBox && this.pip.isBox()) {
+       delete requestArgs.locator;
+       requestArgs.onlyWithStock = true;
++    } else if(this.pip.get('refInventory')){
++      requestArgs.onlyNonStocked = true;
++      requestArgs.onlyWithStock = false;
++      requestArgs.onlyWithoutReference = true;
+     }
+     if (inEvent.onlyWithStock) {
+       requestArgs.onlyWithStock = true;
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-referenceinventory-selector.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-referenceinventory-selector.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-referenceinventory-selector.js	1970-01-01 01:00:00.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/obawo-referenceinventory-selector.js	2020-01-28 14:02:30.000000000 +0100
+@@ -0,0 +1,224 @@
++/*
++ ************************************************************************************
++ * Copyright (C) 2016-2018 Openbravo S.L.U.
++ * Licensed under the Openbravo Commercial License version 1.0
++ * You may obtain a copy of the License at http://www.openbravo.com/legal/obcl.html
++ * or in the legal folder of this module distribution.
++ ************************************************************************************
++ */
++/*global enyo, _, OBAWO, Backbone */
++
++enyo.kind({
++  name: 'OBAWO.PhysicalInventory.ReferenceSelectorModal',
++  kind: 'OB.UI.Modal',
++  topPosition: '125px',
++  body: {
++    kind: 'OBAWO.PhysicalInventory.ReferenceSelectorList',
++    name: 'referenceSelectorListContainer'
++  },
++  handlers: {
++    onReferenceInventorySelected: 'referenceInventorySelected'
++  },
++  locatorSelected: function (inSender, inEvent) {
++    if (this && this.args) {
++      if (this.args.selectedCallback) {
++        this.args.selectedCallback(inEvent.model);
++      }
++    }
++
++    return true;
++  },
++  executeOnHide: function () {
++    this.waterfall('onClosePopup', {
++      criteria: {}
++    });
++  },
++  init: function () {
++    this.inherited(arguments);
++    this.setHeader(OB.I18N.getLabel('OBAWO_LocatorSelectorHeader'));
++  }
++});
++
++enyo.kind({
++  name: 'OBAWO.PhysicalInventory.ReferenceSelectorList',
++  classes: 'row-fluid',
++  published: {
++    referenceInventoryList: null
++  },
++  handlers: {
++    onSearchAction: 'searchAction',
++    onClearAction: 'clearAction',
++    onOpenPopup: 'openPopup',
++    onClosePopup: 'closePopup'
++  },
++  components: [{
++    classes: 'span12',
++    components: [{
++      style: 'border-bottom: 1px solid #cccccc;',
++      classes: 'row-fluid',
++      components: [{
++        classes: 'span12',
++        components: [{
++          name: 'referenceInventorySelectorList',
++          kind: 'OB.UI.ScrollableTable',
++          scrollAreaMaxHeight: '400px',
++          renderHeader: 'OBAWO.PhysicalInventory.ReferenceSelectorHeader',
++          renderLine: 'OBAWO.PhysicalInventory.ReferenceSelectorLine',
++          renderEmpty: 'OB.UI.RenderEmpty'
++        }, {
++          name: 'renderLoading',
++          classes: 'renderLoading',
++          showing: false,
++          initComponents: function () {
++            this.setContent(OB.I18N.getLabel('OBAWO_LblLoading'));
++          }
++        }]
++      }]
++    }]
++  }],
++  locatorListChanged: function () {
++    this.$.referenceInventorySelectorList.setCollection(this.referenceInventoryList);
++  },
++  closePopup: function (inSender, inEvent) {
++    this.waterfall('onClearInput');
++    return true;
++  },
++  openPopup: function (inSender, inEvent) {
++    this.waterfall('onClearInput');
++    return true;
++  },
++  clearAction: function (inSender, inEvent) {
++    this.referenceInventoryList.reset();
++    this.locatorListChanged();
++    return true;
++  },
++
++  searchAction: function (inSender, inEvent) {
++    var me = this;
++    var filter = '';
++    if (inEvent.query && inEvent.query !== '') {
++      filter = inEvent.query;
++    }
++
++    this.$.referenceInventorySelectorList.$.tempty.hide();
++    this.$.referenceInventorySelectorList.$.tbody.hide();
++    this.$.renderLoading.show();
++    OBAWO.CentralBroker.getReferenceInventories({filter: filter}, function (inventories) {
++      me.$.renderLoading.hide();
++      if (inventories && inventories.length <= 0) {
++        me.$.referenceInventorySelectorList.$.tempty.show();
++      }
++      me.setReferenceInventoryList(inventories);
++      me.$.referenceInventorySelectorList.getScrollArea().scrollToTop();
++    }, function (error) {
++      me.$.renderLoading.hide();
++      me.$.referenceInventorySelectorList.$.tempty.show();
++      OB.UTIL.showError(OBAWO.Utils.printError(error));
++    });
++
++    return true;
++  },
++  init: function () {
++    this.inherited(arguments);
++    this.referenceInventoryList = new Backbone.Collection();
++    this.$.referenceInventorySelectorList.setCollection(this.referenceInventoryList);
++  }
++});
++
++enyo.kind({
++  name: 'OBAWO.PhysicalInventory.ReferenceSelectorHeader',
++  kind: 'OB.UI.ScrollableTableHeader',
++  events: {
++    onSearchAction: '',
++    onClearAction: ''
++  },
++  handlers: {
++    onFiltered: 'searchAction',
++    onClearInput: 'clearInput'
++  },
++  components: [{
++    style: 'padding: 10px;',
++    components: [{
++      style: 'display: table;',
++      components: [{
++        style: 'display: table-cell; width: 100%;',
++        components: [{
++          kind: 'OB.UI.SearchInputAutoFilter',
++          name: 'filterText',
++          style: 'width: 100%',
++          minLengthToSearch: 2
++        }]
++      }, {
++        style: 'display: table-cell;',
++        components: [{
++          kind: 'OB.UI.SmallButton',
++          classes: 'btnlink-gray btn-icon-small btn-icon-clear',
++          style: 'width: 100px; margin: 0px 5px 8px 19px;',
++          ontap: 'clearAction'
++        }]
++      }, {
++        style: 'display: table-cell;',
++        components: [{
++          kind: 'OB.UI.SmallButton',
++         classes: 'btnlink-yellow btn-icon-small btn-icon-search',
++          style: 'width: 100px; margin: 0px 0px 8px 5px;',
++          ontap: 'searchAction'
++        }]
++      }]
++    }]
++  }],
++  clearInput: function () {
++    this.$.filterText.setValue('');
++    return true;
++  },
++  clearAction: function () {
++    this.clearInput();
++    this.doClearAction();
++    return true;
++  },
++  searchAction: function () {
++    this.doSearchAction({
++      query: this.$.filterText.getValue()
++    });
++    return true;
++  },
++  executeOnShow: function () {
++    this.$.filterText.setValue('');
++    this.doClearAction();
++  },
++  init: function () {
++    this.doClearAction();
++    this.$.filterText.setValue('');
++  }
++});
++
++enyo.kind({
++ name: 'OBAWO.PhysicalInventory.ReferenceSelectorLine',
++  kind: 'OB.UI.SelectButton',
++  events: {
++    onHideThisPopup: '',
++    onReferenceInventorySelected: ''
++  },
++  components: [{
++    name: 'line',
++    style: 'line-height: 23px;',
++    components: [{
++      name: 'identifier'
++    }, {
++      style: 'clear: both;'
++    }]
++  }],
++  tap: function () {
++    this.doHideThisPopup();
++    this.inherited(arguments);
++    var loc = this.model;
++    this.doReferenceInventorySelected({
++      model: loc
++    });
++    return true;
++  },
++  create: function () {
++    this.inherited(arguments);
++    this.$.identifier.setContent(this.model.get('searchKey'));
++  }
++});
+\ No hay ningún carácter de nueva línea al final del archivo
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/ob-locator-ri-selector.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/ob-locator-ri-selector.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/ob-locator-ri-selector.js	1970-01-01 01:00:00.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/components/ob-locator-ri-selector.js	2020-01-28 14:01:12.000000000 +0100
+@@ -0,0 +1,347 @@
++/*
++ ************************************************************************************
++ * Copyright (C) 2018-2019 Openbravo S.L.U.
++ * Licensed under the Openbravo Commercial License version 1.0
++ * You may obtain a copy of the License at http://www.openbravo.com/legal/obcl.html
++ * or in the legal folder of this module distribution.
++ ************************************************************************************
++ */
++/*global enyo, _, OBAWO, Promise, Backbone*/
++enyo.kind({
++  name: 'OBAWO.Tasks.LocatorRefInventorySelectorListModal',
++  kind: 'OB.UI.Modal',
++  topPosition: '125px',
++  body: {
++    kind: 'OBAWO.Tasks.LocatorRefInventorySelectorList',
++    name: 'locatorRefInvntorySelectorListContainer'
++  },
++  handlers: {
++    onLocatorSelected: 'locatorSelected',
++    onReferenceInventorySelected: 'referenceInventorySelected'
++  },
++  locatorSelected: function (inSender, inEvent) {
++    if (this && this.args) {
++      if (this.args.locatorSelectedCallback) {
++        this.args.locatorSelectedCallback(inEvent.locator, {});
++      }
++    }
++    return true;
++  },
++  referenceInventorySelected: function (inSender, inEvent) {
++    if (this && this.args) {
++      if (this.args.referenceInventorySelectedCallback) {
++        this.args.referenceInventorySelectedCallback(inEvent.ri, {});
++      }
++    }
++    return true;
++  },
++  executeOnHide: function () {
++    this.waterfall('onClosePopup', {
++      criteria: {}
++    });
++  },
++  executeOnShow: function () {
++    var me = this;
++    this.setHeader(OB.I18N.getLabel('OBAWO_LocatorRefInventorySelectorHeader'));
++  },
++  init: function () {
++    this.inherited(arguments);
++    this.setHeader(OB.I18N.getLabel('OBAWO_LocatorSelectorHeader'));
++  }
++});
++
++
++enyo.kind({
++  name: 'OBAWO.Tasks.LocatorRefInventorySelectorList',
++  classes: 'row-fluid',
++  published: {
++    locatorRefInventoryList: null
++  },
++  handlers: {
++    onSearchAction: 'searchAction',
++    onClearAction: 'clearAction',
++    onOpenPopup: 'openPopup',
++    onClosePopup: 'closePopup'
++  },
++  components: [{
++    classes: 'span12',
++    components: [{
++      style: 'border-bottom: 1px solid #cccccc;',
++      classes: 'row-fluid',
++      components: [{
++        classes: 'span12',
++        components: [{
++          name: 'locatorRefInventorySelectorList',
++          kind: 'OB.UI.ScrollableTable',
++          scrollAreaMaxHeight: '400px',
++          renderHeader: 'OBAWO.Tasks.LocatorRefInventorySelectorHeader',
++          renderLine: 'OBAWO.Tasks.LocatorRefInventorySelectorLine',
++          renderEmpty: 'OB.UI.RenderEmpty'
++        }, {
++          name: 'renderLoading',
++          classes: 'renderLoading',
++          showing: false,
++          initComponents: function () {
++            this.setContent(OB.I18N.getLabel('OBAWO_LblLoading'));
++          }
++        }]
++      }]
++    }]
++  }],
++  locatorRefInventoryListChanged: function () {
++    this.$.locatorRefInventorySelectorList.setCollection(this.locatorRefInventoryList);
++  },
++  closePopup: function (inSender, inEvent) {
++    if (inEvent.criteria) {
++      this.generalCriteria = inEvent.criteria;
++    }
++    return true;
++  },
++  openPopup: function (inSender, inEvent) {
++    if (inEvent.criteria) {
++      this.generalCriteria = inEvent.criteria;
++    }
++    this.waterfall('onClearInput');
++    return true;
++  },
++  clearAction: function (inSender, inEvent) {
++    this.locatorRefInventoryList.reset();
++    this.locatorRefInventoryListChanged();
++    return true;
++  },
++
++  searchAction: function (inSender, inEvent) {
++    var me = this;
++    var locatorCriteria = this.generalCriteria || {};
++    var filter = inEvent.query;
++    if (inEvent.query && inEvent.query !== '') {
++      locatorCriteria._whereClause = 'WHERE (searchkey like \'%' + inEvent.query + '%\' OR barcode = \'' + inEvent.query + '\') ';
++    } else {
++      delete locatorCriteria.searchKey;
++    }
++
++    this.$.locatorRefInventorySelectorList.$.tempty.hide();
++    this.$.locatorRefInventorySelectorList.$.tbody.hide();
++    this.$.renderLoading.show();
++
++    var results = new Backbone.Collection();
++    var promises = [];
++    promises.push(new Promise(function(resolve, reject) {
++      OBAWO.CentralBroker.getLocators(locatorCriteria, function (locators) {
++        if (locators && locators.length > 0) {
++          locators.each(function(locator){
++            results.add(new Backbone.Model({
++              model: locator,
++              type: 'locator'
++            }));
++          });
++        }
++        resolve();
++      }, function (error) {
++        reject(error);
++      });
++    }));
++    promises.push(new Promise(function(resolve, reject) {
++      OBAWO.CentralBroker.getReferenceInventories({filter: filter}, function (inventories) {
++        if (inventories && inventories.length > 0) {
++          inventories.each(function(ri){
++            results.add(new Backbone.Model({
++              model: ri,
++              type: 'referenceInventory'
++            }));
++          });
++        }
++        resolve();
++      }, function (error) {
++        reject(error);
++      });  
++    }));
++    promises.push(new Promise(function(resolve, reject) {
++      results.comparator = function(line1, line2){
++        var model1 = line1.get('model');
++        var model2 = line2.get('model');
++        return model1.get('searchKey').localeCompare(model2.get('searchKey'));
++      };
++      results.sort();
++      resolve();
++    }));
++    Promise.all(promises).then(function(value) {
++      me.$.renderLoading.hide();
++      if (results && results.length <= 0) {
++        me.$.locatorRefInventorySelectorList.$.tempty.show();
++      }
++      me.setLocatorRefInventoryList(results);
++      me.$.locatorRefInventorySelectorList.getScrollArea().scrollToTop();
++    });
++    // Load Referenced Inventories
++    
++
++    return true;
++  },
++  init: function () {
++    this.inherited(arguments);
++    this.locatorList = new Backbone.Collection();
++    this.$.locatorRefInventorySelectorList.setCollection(this.locatorList);
++  }
++});
++
++enyo.kind({
++  name: 'OBAWO.Tasks.LocatorRefInventorySelectorHeader',
++  kind: 'OB.UI.ScrollableTableHeader',
++  events: {
++    onSearchAction: '',
++    onClearAction: ''
++  },
++  handlers: {
++    onFiltered: 'searchAction',
++    onClearInput: 'clearInput'
++  },
++  components: [{
++    style: 'padding: 10px;',
++    components: [{
++      style: 'display: table;',
++      components: [{
++        style: 'display: table-cell; width: 100%;',
++        components: [{
++          kind: 'OB.UI.SearchInputAutoFilter',
++          name: 'filterText',
++          style: 'width: 100%',
++          minLengthToSearch: OBAWO.Constants.inventory_min_characters
++        }]
++      }, {
++        style: 'display: table-cell;',
++        components: [{
++          kind: 'OB.UI.SmallButton',
++          classes: 'btnlink-gray btn-icon-small btn-icon-clear',
++          style: 'width: 100px; margin: 0px 5px 8px 19px;',
++          ontap: 'clearAction'
++        }]
++      }, {
++        style: 'display: table-cell;',
++        components: [{
++          kind: 'OB.UI.SmallButton',
++          classes: 'btnlink-yellow btn-icon-small btn-icon-search',
++          style: 'width: 100px; margin: 0px 0px 8px 5px;',
++          ontap: 'searchAction'
++        }]
++      }]
++    }]
++  }],
++  clearInput: function () {
++    this.$.filterText.setValue('');
++    return true;
++  },
++  clearAction: function () {
++    this.clearInput();
++    this.doClearAction();
++    return true;
++  },
++  searchAction: function (inSender, inEvent) {
++    var query = this.$.filterText.getValue();
++    if ((query && query.length >= this.$.filterText.minLengthToSearch) || this.$.filterText.minLengthToSearch === 0) {
++      this.doSearchAction({
++        query: this.$.filterText.getValue()
++      });
++    }
++    return true;
++  },
++  executeOnShow: function () {
++    this.$.filterText.setValue('');
++    this.doClearAction();
++  },
++  initComponents: function(){
++    this.inherited(arguments);
++    var enterFilterMsg = OB.I18N.getLabel('OBAWO_filterRequired', [OBAWO.Constants.inventory_min_characters]);
++    this.$.filterText.setPlaceholder(enterFilterMsg);
++  },
++  init: function () {
++    this.doClearAction();
++    this.$.filterText.setValue('');
++  }
++});
++
++enyo.kind({
++  name: 'OBAWO.Tasks.LocatorRefInventorySelectorLine',
++  kind: 'OB.UI.SelectButton',
++  events: {
++    onHideThisPopup: '',
++    onLocatorSelected: '',
++    onReferenceInventorySelected: ''
++  },
++  components: [{
++    name: 'line',
++    style: 'line-height: 23px; width: 100%',
++    components: [{
++      name: 'identifier',
++      classes: 'locatorRefInvLine'
++    }, {
++      name: 'type',
++      classes: 'typeRefInvLine'
++    }, {
++      name: 'details',
++      classes: 'detailsRefInvLine'
++    }, {
++      style: 'clear: both;'
++    }]
++  }],
++  tap: function () {
++    this.doHideThisPopup();
++    this.inherited(arguments);
++    var model = this.model.get('model');
++    var type = this.model.get('type');
++
++    if(type === 'locator'){
++      this.doLocatorSelected({
++        locator: model
++      });
++    }else if (type === 'referenceInventory'){
++      this.doReferenceInventorySelected({
++        ri: model
++      });
++    }
++    return true;
++  },
++  create: function () {
++    var totOccupancy = 0;
++    var details = "";
++    this.inherited(arguments);
++    var model = this.model.get('model');
++    var type = this.model.get('type');
++
++    if (type === 'locator' && model.get('id') === '-1') {
++      this.$.identifier.setContent(OB.I18N.getLabel('OBAWO_LocatorAlgorithmDecision'));
++      this.$.details.setContent('');
++      return;
++    }
++
++    if (type === 'locator' && model.get('isExternal')) {
++      details = model.get('warehouse_name') + '[' + model.get('warehouse_org_name') + '], ' + model.get('internal_routing_area_name') + ' , ' + model.get('storage_bin_group_name');
++    } else if(type === 'locator') {
++      details = model.get('internal_routing_area_name') + ' , ' + model.get('storage_bin_group_name');
++    }
++
++    if (type === 'locator' && model && _.isNumber(model.get('occupancy')) && _.isNumber(model.get('occupancy_pending'))) {
++      totOccupancy = model.get('occupancy') + model.get('occupancy_pending');
++      //Round
++      totOccupancy = Math.ceil(totOccupancy);
++    }
++
++    if(type === 'locator'){
++      this.$.identifier.setContent(model.get('searchKey') + ' (' + totOccupancy + '%)');
++      this.$.details.setContent(details);
++    }
++
++    if(type === 'referenceInventory'){
++      this.$.identifier.setContent(model.get('searchKey'));
++      this.$.details.setContent(model.get('typeSearchKey'));
++    }
++
++    if(type === 'locator'){
++      this.$.type.applyStyle('color', '#FF4949');
++      this.$.type.setContent(OB.I18N.getLabel('OBAWO_LocatorLbl'));
++    }else if (type === 'referenceInventory'){
++      this.$.type.applyStyle('color', '#49FF5E');
++      this.$.type.setContent(OB.I18N.getLabel('OBAWO_ReferenceInventoryLbl'));
++    }    
++  }
++});
+\ No hay ningún carácter de nueva línea al final del archivo
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/maintasks/obawo-tasks-view.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/maintasks/obawo-tasks-view.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/maintasks/obawo-tasks-view.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/maintasks/obawo-tasks-view.js	2020-07-01 12:45:32.137111039 +0200
+@@ -84,6 +84,12 @@
+   }, {
+     kind: 'OBAWO.Tasks.DoubleConfirmation.SingleTask',
+     name: 'popupDoubleConfirmationSimpleTask'
++  }, {
++    kind: 'OBAWO.PhysicalInventory.ReferenceSelectorModal',
++    name: 'modalSelectReferenceInventory'
++  }, {
++    kind: 'OBAWO.Tasks.LocatorRefInventorySelectorListModal',
++    name: 'modalSelectLocatorReferenceInventory'
+   }],
+ 
+   reloadTasks: function () {
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/centralbroker.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/centralbroker.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/centralbroker.js	2019-11-04 20:21:02.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/centralbroker.js	2020-07-01 11:41:37.121440552 +0200
+@@ -1068,6 +1068,34 @@
+       }, function (error) {
+         errorCallback(error.exception.message);
+       });
++    },
++  getReferenceInventories: function (args, successCallback, errorCallback) {
++        var candidatesCollection;
++        if(args && OB.UTIL.isNullOrUndefined(args._limit)){
++          args._limit = OBAWO.Constants.limit_candidates + 1;
++        }
++        new OB.DS.Request(OBAWO.Constants.ReferencedInventoryUrl).exec(args, function (data) {
++          if (data) {
++            if (data.exception) {
++              errorCallback(data.exception);
++            } else {
++              var candidatesCollection, filteredData, excededLimit = false;
++              if (data.length > OBAWO.Constants.limit_candidates) {
++                //All except the last one
++              filteredData = _.initial(data);
++              excededLimit = true;
++            } else {
++              filteredData = data;
++            }
++            candidatesCollection = new Backbone.Collection(data);
++            successCallback(candidatesCollection, excededLimit);
++          }
++        } else {
++          errorCallback();
++        }
++      }, function (error) {
++        errorCallback(error);
++      }, true, OBAWO.Constants.taskGenerators_timeout);
+     }
+   });
+   OBAWO.CentralBroker = new OB.Model.CentralBroker();
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/pip.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/pip.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/pip.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/models/pip.js	2020-07-01 12:51:36.163254712 +0200
+@@ -32,12 +32,21 @@
+       return result;
+     },
+     _prepareToSend: function () {
+-      return {
+-        locatorId: this.get('locator').get('id'),
+-        action: this.get('action'),
+-        creationDate: this.get('creationDate'),
+-        pipItems: this.getItemsList()._prepareToSend()
+-      };
++      if (this.get('locator')) {
++        return {
++          locatorId: this.get('locator').get('id'),
++          action: this.get('action'),
++          creationDate: this.get('creationDate'),
++          pipItems: this.getItemsList()._prepareToSend()
++        };
++      } else if (this.get('refInventory')) {
++        return {
++          reference: this.get('refInventory').get('searchKey'),
++          action: this.get('action'),
++          creationDate: this.get('creationDate'),
++          pipItems: this.getItemsList()._prepareToSend()
++        };
++      }
+     },
+     synchronize: function (success, error) {
+       if (this.isReady()) {
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/components/obawo-physicalinventorycount-pip.js	2020-07-09 17:42:40.805617532 +0200
+@@ -6,7 +6,7 @@
+  * or in the legal folder of this module distribution.
+  ************************************************************************************
+  */
+-/*global enyo, _, $, OBAWO*/
++/*global enyo, _, $, OBAWO, Promise*/
+ 
+ enyo.kind({
+   name: 'OBAWO.PhysicalInventory.newPipItemCreator',
+@@ -26,6 +26,73 @@
+     });
+     return true;
+   },
++  addPIPCountList: function () {
++  var me = this;
++  var params;
++  if (me.pip.get('locator')) {
++    params = {
++      _limit: -1,
++      onlyWithStock: true,
++      locator: me.pip.get('locator').get('id')
++    };
++  } else if (me.pip.get('refInventory')) {
++    params = {
++      _limit: -1,
++      onlyWithStock: true,
++      reference: me.pip.get('refInventory').get('searchKey')
++    };
++  }
++  OB.UTIL.showLoading(true);
++  OBAWO.CentralBroker.getPhysicalInventoryProducts(params, '', function (inventory, limitExceded) {
++        if (inventory && inventory.length <= 0) {
++          OB.UTIL.showError(OBAWO.Utils.printError(OB.I18N.getLabel('OBAWO_noDataRetrievedFromInventory')));
++          return;
++        }
++  
++        OB.UTIL.showConfirmation.display('Crear Lista de Conteo', inventory.length + ' lineas serán generadas. Si el inventario actual tiene lineas, estas serán borradas. Desea continuar?', [{
++      label: OB.I18N.getLabel('OBMOBC_LblOk'),
++      action: function () {
++        var promises = [];
++        inventory.each(function (item) {
++          promises.push(new Promise(function (resolve, reject) {
++            me.pip.addItem(item, resolve);
++          }));
++        });
++        Promise.all(promises).then(function () {
++          // Set confirmedQuantity to 0 in all lines
++            me.pip.getItemsList().each(function (item) {
++            item.set('confirmedQuantity', 0);
++          });
++          OB.UTIL.showLoading(false);
++          enyo.$.scrim.hide();
++          me.$.actionCountList.setShowing(false);
++        }).
++        catch (function (reason) {
++         OB.UTIL.showError(reason);
++          OB.UTIL.showLoading(false);
++        });
++        return;
++      }
++    }, {
++      label: OB.I18N.getLabel('OBMOBC_LblCancel'),
++      action: function () {
++        // Do nothing
++        enyo.$.scrim.hide();
++        return;
++      }
++    }], {
++      autoDismiss: false
++    });
++  }, function (error) {
++    OB.UTIL.showLoading(false);
++    if (error && error.exception && error.exception.message && error.exception.inSender) {
++      OB.UTIL.showError(error.exception.inSender + ": " + error.exception.message);
++    } else {
++      OB.UTIL.showError(OBAWO.Utils.printError(error));
++    }
++  });
++  return true;
++},
+   components: [{
+     name: 'text'
+   }, {
+@@ -35,12 +102,19 @@
+       kind: 'enyo.Button',
+       name: 'action',
+       ontap: 'addPIPLine'
+-    }]
++    }, 
++        {
++        kind: 'enyo.Button',
++        name: 'actionCountList',
++        style: 'margin-left: 10px;',
++        ontap: 'addPIPCountList'
++      }]
+   }],
+   initComponents: function () {
+     this.inherited(arguments);
+     this.$.text.setContent(OB.I18N.getLabel(this.i18NText));
+     this.$.action.setContent(OB.I18N.getLabel(this.i18NActionLabel));
++    this.$.actionCountList.setContent(OB.I18N.getLabel(this.i18NActionLabelCountList));
+   }
+ });
+ 
+@@ -71,7 +145,8 @@
+         kind: 'OBAWO.PhysicalInventory.newPipItemCreator',
+         name: 'addPipItem',
+         i18NText: 'OBAWO_AddPIPLine',
+-        i18NActionLabel: 'OBAWO_AddLineToPIP_Action'
++        i18NActionLabel: 'OBAWO_AddLineToPIP_Action',
++        i18NActionLabelCountList: 'OBAWO_AddPIPCountList'
+       }]
+     }]
+   }],
+@@ -83,7 +158,12 @@
+       var requestArgs = {};
+       requestArgs.onlyWithStock = false;
+       requestArgs.onlyUPC = true;
+-      requestArgs.locator = me.pip.get('locator').id;
++      if (me.pip.get('locator')) {
++          requestArgs.locator = me.pip.get('locator').id;
++      }
++      if (me.pip.get('refInventory')) {
++          requestArgs.reference = me.pip.get('refInventory').get('searchKey');
++      }
+       OBAWO.CentralBroker.getPhysicalInventoryProducts(requestArgs, upcCode, function (inventory, limitExceded) {
+         if (inventory && inventory.length === 1) {
+           //add to the list
+@@ -255,8 +335,13 @@
+     this.$.pipToolbar.setPip(this.pip);
+   },
+   renderDocument: function () {
+-    this.$.pipHeader.$.pipLocatorLabel.setContent(OB.I18N.getLabel('OBAWO_FieldLabel_Locator') + ': ');
+-    this.$.pipHeader.$.pipLocatorValue.setContent(this.pip.get('locator').get('searchKey'));
++    if (this.pip.get('locator')) {
++      this.$.pipHeader.$.pipLocatorLabel.setContent(OB.I18N.getLabel('OBAWO_FieldLabel_Locator') + ': ');
++      this.$.pipHeader.$.pipLocatorValue.setContent(this.pip.get('locator').get('searchKey'));
++    } else if (this.pip.get('refInventory')) {
++      this.$.pipHeader.$.pipLocatorLabel.setContent(OB.I18N.getLabel('OBAWO_FieldLabel_ReferenceInventory') + ': ');
++      this.$.pipHeader.$.pipLocatorValue.setContent(this.pip.get('refInventory').get('searchKey'));
++    }
+     this.$.pipHeader.$.pipDateValue.setContent(OB.I18N.formatDate(this.pip.get('creationDate')));
+     this.$.pipHeader.$.pipDateLabel.setContent(OB.I18N.getLabel('OBMOBC_Date') + ': ');
+     this.$.pipHeader.$.docIcon.renderButton();
+@@ -576,7 +661,11 @@
+   refresh: function () {
+     if (this.currentPipItem) {
+       this.$.deleteBtn.setShowing(true);
+-      this.$.pipInfo.setContent(this.pip.get('locator').get('searchKey'));
++      if (this.pip.get('locator')) {
++       this.$.pipInfo.setContent(this.pip.get('locator').get('searchKey'));
++      } else if (this.pip.get('refInventory')) {
++       this.$.pipInfo.setContent(this.pip.get('refInventory').get('searchKey'));
++      }
+       this.$.productInfo.setContent(this.currentPipItem.get('product_name'));
+     } else {
+       this.$.deleteBtn.setShowing(false);
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-model.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-model.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-model.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-model.js	2020-07-01 12:30:28.719715872 +0200
+@@ -21,24 +21,42 @@
+   },
+   loadModels: function (loadModelsCallback) {
+     var me = this;
+-    if (OB.UTIL.isNullOrUndefined(this.get('windowParams')) || OB.UTIL.isNullOrUndefined(this.get('windowParams').locatorId)) {
++    if (OB.UTIL.isNullOrUndefined(this.get('windowParams')) || OB.UTIL.isNullOrUndefined(this.get('windowParams').modelId)) {
+       me.trigger('pipIsReady');
+       loadModelsCallback();
+     }
+-    OBAWO.CentralBroker.getLocators({
+-      id: this.get('windowParams').locatorId
++    if(this.get('windowParams').type === 'locator'){
++      OBAWO.CentralBroker.getLocators({
++        id: this.get('windowParams').modelId
+     }, function (arrLocator) {
+-      if (arrLocator && arrLocator.length === 1) {
+-        me.set('currentLocator', arrLocator.at(0));
+-        me.trigger('pipIsReady');
+-        loadModelsCallback();
+-      } else {
+-        OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
+-        OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
+-      }
+-    }, function () {
++    if (arrLocator && arrLocator.length === 1) {
++          me.set('currentLocator', arrLocator.at(0));
++      me.trigger('pipIsReady');
++      loadModelsCallback();
++    } else {
+       OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
+       OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
+-    });
++      }
++     }, function () {
++      OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
++    OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
++     });
++    } else if(this.get('windowParams').type === 'referenceInventory'){
++     OBAWO.CentralBroker.getReferenceInventories({
++        id: this.get('windowParams').modelId
++     }, function (inventories) {
++       if (inventories && inventories.length === 1) {
++          me.set('currentReferencedInventory', inventories.at(0));
++          me.trigger('pipIsReady');
++          loadModelsCallback();
++       } else {
++          OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++          OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++       }
++     }, function (error) {
++       OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++       OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++     });
++    }
+   }
+ });
+\ No hay ningún carácter de nueva línea al final del archivo
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-view.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-view.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-view.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/physicalinventorycount/obawo-physicalinventorycount-view.js	2020-07-01 12:41:10.647529754 +0200
+@@ -51,25 +51,40 @@
+   init: function () {
+     var meView = this;
+     this.inherited(arguments);
++    var modelId = this.params.match('id=([a-zA-Z0-9]+)')[1];
++    var type = this.params.match('type=([a-zA-Z0-9]+)&')[1];
+     this.model.set('windowParams', {
+-      locatorId: this.params
++      type: type,
++      modelId: modelId
+     });
+     this.model.on('pipIsReady', function () {
+       var meModel = this;
+       var readyToStart = function () {
+-          meModel.set('pip', new OB.Model.Pip({
+-            'locator': meModel.get('currentLocator')
+-          }));
++          if(type === 'locator'){  
++            meModel.set(
++              'pip',
++              new OB.Model.Pip({
++                locator: meModel.get('currentLocator')
++              })
++            );
++          } else if (type === 'referenceInventory'){
++            meModel.set(
++               'pip', 
++               new OB.Model.Pip({
++                 refInventory: meModel.get('currentReferencedInventory')
++               })
++            );
++          }
+           meView.$.productSelectorModal.setPip(meModel.get('pip'));
+           meView.$.multiColumn.$.leftPanel.$.PIP_Container.setPip(meModel.get('pip'));
+           meView.$.multiColumn.$.rightPanel.$.pipItemProperties.setPip(meModel.get('pip'));
+           };
+-      if (OB.UTIL.isNullOrUndefined(this.get('currentLocator'))) {
++      if (this.get('type') === 'locator' && OB.UTIL.isNullOrUndefined(this.get('currentId'))) {
+         meView.doShowPopup({
+-          popup: 'modalLocatorSelector',
++          popup: 'modalSelectReference',
+           args: {
+             locatorSelectedCallback: function (selectedLocator) {
+-              meModel.set('currentLocator', selectedLocator);
++              meModel.set('currentId', selectedLocator);
+               readyToStart();
+             }
+           }
+diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/utils/obawo-constants.js b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/utils/obawo-constants.js
+--- a/web/org.openbravo.warehouse.advancedwarehouseoperations/source/utils/obawo-constants.js	2019-01-16 17:34:30.000000000 +0100
++++ b/web/org.openbravo.warehouse.advancedwarehouseoperations/source/utils/obawo-constants.js	2020-07-01 11:47:25.747732400 +0200
+@@ -34,6 +34,7 @@
+ OBAWO.Constants.ReferenceCreator = 'org.openbravo.warehouse.advancedwarehouseoperations.mobile.processors.CreateReferenceProcessor';
+ OBAWO.Constants.UnboxGeneratorProcessor = 'org.openbravo.warehouse.advancedwarehouseoperations.mobile.processors.UnboxGeneratorProcessor';
+ OBAWO.Constants.BoxGeneratorProcessor = 'org.openbravo.warehouse.advancedwarehouseoperations.mobile.processors.BoxGeneratorProcessor';
++OBAWO.Constants.ReferencedInventoryUrl = 'org.openbravo.warehouse.advancedwarehouseoperations.mobile.datasources.PIP_ReferenceInventorySelector';
+ 
+ 
+ OBAWO.Constants.ACTION_ISSUE = 'ISS';
