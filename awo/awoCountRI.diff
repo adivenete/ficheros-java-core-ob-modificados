@@ -388,7 +388,7 @@ diff -ru --new-file a/src/org/openbravo/warehouse/advancedwarehouseoperations/mo
 +                  confirmedQtyBD);
 +          // ---------
 +          final AttributeSetInstance stgDetailAttSetInstance = stgDetail.getAttributeSetValue();
-+          if (!stgDetailAttSetInstance.getId().equals("0")) {
++          if (!stgDetailAttSetInstance.getId().equals("0") && curItem.has("confirmedAttValues")) {
 +            final OBCriteria<AttributeUse> attributeuseCriteria = OBDal.getInstance()
 +                .createCriteria(AttributeUse.class);
 +            attributeuseCriteria.add(Restrictions.eq(AttributeUse.PROPERTY_ATTRIBUTESET,
