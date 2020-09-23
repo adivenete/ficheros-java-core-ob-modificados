@@ -2150,8 +2150,8 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
 -    });
 +      }
 +     }, function () {
-+      OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
-+    OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresALocator'));
++      OB.error(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
++    OB.UTIL.showError(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
 +     });
 +    } else if(this.get('windowParams').type === 'referenceInventory'){
 +     OBAWO.CentralBroker.getReferenceInventories({
@@ -2162,12 +2162,13 @@ diff -ru --new-file a/web/org.openbravo.warehouse.advancedwarehouseoperations/so
 +          me.trigger('pipIsReady');
 +          loadModelsCallback();
 +       } else {
-+          OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
-+          OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++          OB.error(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
++          OB.UTIL.showError(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
++          loadModelsCallback();
 +       }
 +     }, function (error) {
-+       OB.error(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
-+       OB.UTIL.showError(OB.I18N.getLabel('OBAWO_PIWindowRequiresARefInventory'));
++       OB.error(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
++       OB.UTIL.showError(OB.I18N.getLabel('AWOFE_PIWindowRequiresARefInventory'));
 +     });
 +    }
    }
